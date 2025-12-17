@@ -1,0 +1,61 @@
+openapi: 3.1.0
+info:
+  title: Virtual Tour API
+  version: 1.0.0
+  description: API for managing virtual tours and media uploads
+
+paths:
+  /uploads/presign:
+    post:
+      summary: Get Cloudflare R2 presigned PUT url
+      security: 
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tourId, sceneId, mime]
+              properties:
+                tourId: 
+                  type: string
+                sceneId: 
+                  type: string
+                mime: 
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: 
+                    type: string
+                  key: 
+                    type: string
+
+  /uploads/cf-images-direct:
+    post:
+      summary: Create Cloudflare Images Direct Upload URL
+      security: 
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uploadURL: 
+                    type: string
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
