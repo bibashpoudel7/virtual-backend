@@ -69,14 +69,15 @@ func (h *Handler) CreateTour(c *gin.Context) {
 	// Create tour with proper defaults
 
 	tour := models.Tour{
-		ID:                uuid.GenerateUUIDv7(),
-		Name:              getString(requestData, "name", ""),
-		DefaultFOV:        getFloat64(requestData, "default_fov", 75),
-		DefaultYawSpeed:   getFloat64(requestData, "default_yaw_speed", 0.01),
-		DefaultPitchSpeed: getFloat64(requestData, "default_pitch_speed", 0.0),
-		IsPublished:       getBool(requestData, "is_published", false),
-		AutoplayEnabled:   getBool(requestData, "autoplay_enabled", false),
-		Source:            "standalone",
+		ID:                 uuid.GenerateUUIDv7(),
+		Name:               getString(requestData, "name", ""),
+		BackgroundAudioURL: getStringPtr(requestData, "background_audio_url"),
+		DefaultFOV:         getFloat64(requestData, "default_fov", 75),
+		DefaultYawSpeed:    getFloat64(requestData, "default_yaw_speed", 0.01),
+		DefaultPitchSpeed:  getFloat64(requestData, "default_pitch_speed", 0.0),
+		IsPublished:        getBool(requestData, "is_published", false),
+		AutoplayEnabled:    getBool(requestData, "autoplay_enabled", false),
+		Source:             "standalone",
 	}
 
 	// Get user from context
@@ -133,10 +134,22 @@ func (h *Handler) GetTour(c *gin.Context) {
 	id := c.Param("id")
 	println("bibash", id)
 
-	tour, err := h.service.GetTour(id)
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
 
+	tour, err := h.service.GetTour(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+
+	// Check if the tour belongs to the authenticated user
+	if tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
@@ -160,24 +173,76 @@ func (h *Handler) ListTours(c *gin.Context) {
 }
 
 func (h *Handler) UpdateTour(c *gin.Context) {
-	id := c.Param("id")
-	var tour models.Tour
-	if err := c.ShouldBindJSON(&tour); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	tour.ID = id
-	if err := h.service.UpdateTour(&tour); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, tour)
+    id := c.Param("id")
+    
+    // Get user ID from context
+    userID, exists := c.Get("user_id")
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+        return
+    }
+    
+    // Get existing tour first
+    existingTour, err := h.service.GetTour(id)
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+        return
+    }
+    
+    // Check if the tour belongs to the authenticated user
+    if existingTour.UserID != userID.(string) {
+        c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+        return
+    }
+    
+    // Use map for partial updates
+    var updateData map[string]interface{}
+    if err := c.ShouldBindJSON(&updateData); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    
+    // Update only provided fields
+    if audioUrl, exists := updateData["background_audio_url"]; exists {
+        if audioUrl == nil {
+            existingTour.BackgroundAudioURL = nil
+        } else if str, ok := audioUrl.(string); ok {
+            existingTour.BackgroundAudioURL = &str
+        }
+    }
+    
+    if err := h.service.UpdateTour(existingTour); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    
+    c.JSON(http.StatusOK, existingTour)
 }
+
 
 func (h *Handler) DeleteTour(c *gin.Context) {
 	id := c.Param("id")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	
+	// Get existing tour first to check ownership
+	existingTour, err := h.service.GetTour(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+	
+	// Check if the tour belongs to the authenticated user
+	if existingTour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+	
 	if err := h.service.DeleteTour(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -187,7 +252,14 @@ func (h *Handler) DeleteTour(c *gin.Context) {
 }
 
 func (h *Handler) ListAllTours(c *gin.Context) {
-	tours, err := h.service.ListAllTours()
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	tours, err := h.service.ListUserTours(userID.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -198,6 +270,24 @@ func (h *Handler) ListAllTours(c *gin.Context) {
 
 func (h *Handler) CreateScene(c *gin.Context) {
 	tourID := c.Param("id")
+
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Verify tour ownership
+	tour, err := h.service.GetTour(tourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+	if tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
 
 	// Log the raw request body for debugging
 	body, _ := c.GetRawData()
@@ -246,6 +336,25 @@ func (h *Handler) CreateScene(c *gin.Context) {
 
 func (h *Handler) ListScenes(c *gin.Context) {
 	tourID := c.Param("id")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Verify tour ownership
+	tour, err := h.service.GetTour(tourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+	if tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
 	scenes, err := h.service.ListScenes(tourID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -257,9 +366,28 @@ func (h *Handler) ListScenes(c *gin.Context) {
 
 func (h *Handler) GetScene(c *gin.Context) {
 	sceneID := c.Param("sceneId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
 	scene, err := h.service.GetScene(sceneID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+
+	// Verify tour ownership through scene's tour
+	tour, err := h.service.GetTour(scene.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+	if tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
@@ -268,6 +396,32 @@ func (h *Handler) GetScene(c *gin.Context) {
 
 func (h *Handler) UpdateScene(c *gin.Context) {
 	sceneID := c.Param("sceneId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get existing scene first
+	existingScene, err := h.service.GetScene(sceneID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+
+	// Verify tour ownership through scene's tour
+	tour, err := h.service.GetTour(existingScene.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+	if tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
 	var scene models.Scene
 	if err := c.ShouldBindJSON(&scene); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -285,6 +439,32 @@ func (h *Handler) UpdateScene(c *gin.Context) {
 
 func (h *Handler) DeleteScene(c *gin.Context) {
 	sceneID := c.Param("sceneId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get existing scene first
+	existingScene, err := h.service.GetScene(sceneID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+
+	// Verify tour ownership through scene's tour
+	tour, err := h.service.GetTour(existingScene.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+	if tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
 	if err := h.service.DeleteScene(sceneID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -295,9 +475,28 @@ func (h *Handler) DeleteScene(c *gin.Context) {
 
 func (h *Handler) UpdateHotspot(c *gin.Context) {
 	hotspotID := c.Param("hotspotId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
 	var hotspot models.Hotspot
 	if err := c.ShouldBindJSON(&hotspot); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify tour ownership through hotspot's tour
+	tour, err := h.service.GetTour(hotspot.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+	if tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
@@ -312,6 +511,32 @@ func (h *Handler) UpdateHotspot(c *gin.Context) {
 
 func (h *Handler) DeleteHotspot(c *gin.Context) {
 	hotspotID := c.Param("hotspotId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get existing hotspot first
+	existingHotspot, err := h.service.GetHotspot(hotspotID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "hotspot not found"})
+		return
+	}
+
+	// Verify tour ownership through hotspot's tour
+	tour, err := h.service.GetTour(existingHotspot.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+	if tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
 	if err := h.service.DeleteHotspot(hotspotID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -328,6 +553,15 @@ func getString(m map[string]interface{}, key string, defaultValue string) string
 		}
 	}
 	return defaultValue
+}
+
+func getStringPtr(m map[string]interface{}, key string) *string {
+	if val, exists := m[key]; exists {
+		if str, ok := val.(string); ok && str != "" {
+			return &str
+		}
+	}
+	return nil
 }
 
 func getFloat64(m map[string]interface{}, key string, defaultValue float64) float64 {

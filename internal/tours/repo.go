@@ -18,6 +18,7 @@ type Repository interface {
 	DeleteTour(id string) error
 	FindByProperty(propertyID string) ([]models.Tour, error)
 	ListAllTours() ([]models.Tour, error)
+	ListUserTours(userID string) ([]models.Tour, error)
 	CountUserTours(userID string) (int64, error)
 
 	CreateScene(scene *models.Scene) error
@@ -27,6 +28,7 @@ type Repository interface {
 	ListScenes(tourID string) ([]models.Scene, error)
 
 	CreateHotspot(tourID, sceneID, targetSceneID, kind string, yaw, pitch float64, payload map[string]any) (*models.Hotspot, error)
+	GetHotspot(hotspotID string) (*models.Hotspot, error)
 	ListHotspots(sceneID string) ([]models.Hotspot, error)
 	UpdateHotspot(hotspot *models.Hotspot) error
 	DeleteHotspot(hotspotID string) error
@@ -124,6 +126,14 @@ func (r *tourRepository) ListHotspots(sceneID string) ([]models.Hotspot, error) 
 	return out, nil
 }
 
+func (r *tourRepository) GetHotspot(hotspotID string) (*models.Hotspot, error) {
+	var hotspot models.Hotspot
+	if err := r.db.Where("id = ?", hotspotID).First(&hotspot).Error; err != nil {
+		return nil, err
+	}
+	return &hotspot, nil
+}
+
 func (r *tourRepository) UpdateTour(tour *models.Tour) error {
 	return r.db.Save(tour).Error
 }
@@ -135,6 +145,14 @@ func (r *tourRepository) DeleteTour(id string) error {
 func (r *tourRepository) ListAllTours() ([]models.Tour, error) {
 	var tours []models.Tour
 	if err := r.db.Find(&tours).Error; err != nil {
+		return nil, err
+	}
+	return tours, nil
+}
+
+func (r *tourRepository) ListUserTours(userID string) ([]models.Tour, error) {
+	var tours []models.Tour
+	if err := r.db.Where("user_id = ?", userID).Find(&tours).Error; err != nil {
 		return nil, err
 	}
 	return tours, nil

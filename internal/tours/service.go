@@ -21,6 +21,7 @@ type Service interface {
 	DeleteTour(id string) error
 	ListTours(propertyID string) ([]models.Tour, error)
 	ListAllTours() ([]models.Tour, error)
+	ListUserTours(userID string) ([]models.Tour, error)
 
 	// Scene management
 	CreateScene(scene *models.Scene) error
@@ -39,6 +40,7 @@ type Service interface {
 		pitch float64,
 		payload map[string]any,
 	) (*models.Hotspot, error)
+	GetHotspot(hotspotID string) (*models.Hotspot, error)
 	ListHotspots(sceneID string) ([]models.Hotspot, error)
 	UpdateHotspot(hotspot *models.Hotspot) error
 	DeleteHotspot(hotspotID string) error
@@ -84,6 +86,10 @@ func (s *service) ListHotspots(sceneID string) ([]models.Hotspot, error) {
 	return s.repo.ListHotspots(sceneID)
 }
 
+func (s *service) GetHotspot(hotspotID string) (*models.Hotspot, error) {
+	return s.repo.GetHotspot(hotspotID)
+}
+
 func (s *service) UpdateTour(tour *models.Tour) error {
 	return s.repo.UpdateTour(tour)
 }
@@ -94,6 +100,10 @@ func (s *service) DeleteTour(id string) error {
 
 func (s *service) ListAllTours() ([]models.Tour, error) {
 	return s.repo.ListAllTours()
+}
+
+func (s *service) ListUserTours(userID string) ([]models.Tour, error) {
+	return s.repo.ListUserTours(userID)
 }
 
 func (s *service) CreateScene(scene *models.Scene) error {
