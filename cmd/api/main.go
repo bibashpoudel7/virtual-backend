@@ -6,9 +6,16 @@ import (
 	vdb "backend/internal/db"
 	httpapi "backend/internal/http"
 	"log"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using environment variables")
+	}
+
 	// 1️⃣ Load configuration
 	cfg := config.Load()
 

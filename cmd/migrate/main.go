@@ -8,9 +8,16 @@ import (
 	"backend/internal/config"
 	"backend/internal/db"
 	"backend/internal/migrate"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using environment variables")
+	}
+
 	// Parse command line flags
 	var (
 		migrationsPath = flag.String("path", "migrations", "Path to migrations directory")

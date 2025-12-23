@@ -15,7 +15,7 @@ echo -e "${CYAN}🚀 Starting Backend with Auto-Reload${NC}"
 # Install Air if not present
 if ! command -v air &> /dev/null; then
     echo -e "${YELLOW}Installing Air...${NC}"
-    go install github.com/cosmtrek/air@latest
+    go install github.com/air-verse/air@latest
     export PATH=$PATH:$(go env GOPATH)/bin
 fi
 

@@ -7,7 +7,7 @@ help: ## Show this help message
 .PHONY: install-air
 install-air: ## Install Air for hot-reload
 	@echo "Installing Air for hot-reload..."
-	@go install github.com/cosmtrek/air@latest
+	@go install github.com/air-verse/air@latest
 	@echo "Air installed successfully!"
 
 .PHONY: dev
