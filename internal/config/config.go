@@ -8,9 +8,10 @@ import (
 )
 
 type Config struct {
-	Port        string
-	PostgresDSN string
-	RedisAddr   string
+	Port            string
+	PostgresDSN     string
+	MainPostgresDSN string // Main TheNimto database for users, companies, properties
+	RedisAddr       string
 
 	R2Endpoint  string
 	R2Region    string
@@ -31,10 +32,11 @@ type Config struct {
 func Load() Config {
 	return Config{
 		// postgresql://company_user:pacecode@123@209.38.154.134/company"
-		Port:        get("PORT", "5555"),
-		PostgresDSN: get("POSTGRES_DSN", "postgres://pacecode:root@localhost:5432/virtual?sslmode=disable"),
-		RedisAddr:   get("REDIS_ADDR", "localhost:6379"),
-		JWTSecret:   get("JWT_SECRET", "8db1b8d5158b97eb7b54bf002765323c04a5c1be86d34b44548637f6e7a358e160a078390957e5481b069761e8b8>"),
+		Port:            get("PORT", "5555"),
+		PostgresDSN:     get("POSTGRES_DSN", "postgres://pacecode:root@localhost:5432/virtual?sslmode=disable"),
+		MainPostgresDSN: get("MAIN_POSTGRES_DSN", "postgres://nimto:nimto7f4556f43-61da-4bd7-9dca-99b046370f1a%40@209.38.154.134:5432/devevent?sslmode=disable"),
+		RedisAddr:       get("REDIS_ADDR", "localhost:6379"),
+		JWTSecret:       get("JWT_SECRET", "8db1b8d5158b97eb7b54bf002765323c04a5c1be86d34b44548637f6e7a358e160a078390957e5481b069761e8b8>"),
 
 		R2Endpoint:  get("R2_ENDPOINT", "https://6d42dedb027b4e7b3b60bf73190ee171.r2.cloudflarestorage.com"),
 		R2Region:    get("R2_REGION", "APAC"),
