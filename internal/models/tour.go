@@ -5,7 +5,7 @@ type Tour struct {
 	ID                 string  `json:"id" gorm:"primaryKey;size:50;column:id"`
 	Name               string  `json:"name" gorm:"column:name"`
 	UserID             string  `json:"user_id" gorm:"column:user_id;size:50;index"`     // Owner of the tour
-	PropertyID         *int64  `json:"property_id,omitempty" gorm:"column:property_id"` // nullable - only if from main frontend
+	PropertyID         *string `json:"property_id,omitempty" gorm:"column:property_id"` // nullable - only if from main frontend
 	BackgroundAudioURL *string `json:"background_audio_url,omitempty" gorm:"column:background_audio_url"`
 	IsPublished        bool    `json:"is_published" gorm:"column:is_published"`
 	AutoplayEnabled    bool    `json:"autoplay_enabled" gorm:"column:autoplay_enabled"`  // nullable
@@ -27,6 +27,12 @@ type Tour struct {
 	TourScenes []TourScene `json:"tour_scenes" gorm:"foreignKey:TourID"`
 
 	BaseModel
+}
+
+// TourWithProperty represents a tour with property information included
+type TourWithProperty struct {
+	Tour
+	PropertyName *string `json:"property_name,omitempty"`
 }
 
 // TourScene maps which scenes are part of a tour and their sequence
