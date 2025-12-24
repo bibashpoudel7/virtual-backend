@@ -28,13 +28,13 @@ func main() {
 
 	// Load configuration and connect to database
 	cfg := config.Load()
-	database := db.MustConnect(cfg)
-	if database == nil {
+	databases := db.MustConnect(cfg)
+	if databases == nil {
 		log.Fatal("Failed to connect to database")
 	}
 
-	// Create migrator
-	migrator := migrate.NewMigrator(database)
+	// Create migrator using the Virtual database
+	migrator := migrate.NewMigrator(databases.Virtual)
 
 	// Convert relative path to absolute
 	absPath, err := filepath.Abs(*migrationsPath)

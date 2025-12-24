@@ -3,7 +3,7 @@ package main
 
 import (
 	"backend/internal/config"
-	vdb "backend/internal/db"
+	"backend/internal/db"
 	httpapi "backend/internal/http"
 	"log"
 
@@ -19,11 +19,11 @@ func main() {
 	// 1️⃣ Load configuration
 	cfg := config.Load()
 
-	// 2️⃣ Connect to PostgreSQL
-	gdb := vdb.MustConnect(cfg)
+	// 2️⃣ Connect to both databases
+	dbs := db.MustConnect(cfg)
 
 	// 6️⃣ Create Gin router with all dependencies
-	router := httpapi.NewRouter(cfg, gdb)
+	router := httpapi.NewRouter(cfg, dbs)
 
 	// 7️⃣ Start server
 	log.Printf("virtual-tour-service listening on :%s", cfg.Port)
