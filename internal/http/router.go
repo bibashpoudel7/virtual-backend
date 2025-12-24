@@ -5,16 +5,19 @@ package http
 import (
 	"backend/internal/auth"
 	"backend/internal/config"
+	"backend/internal/db"
 	"backend/internal/payment"
+	"backend/internal/properties"
 	"backend/internal/tours"
 	"log"
 	"os"
+	"strings"
 
+	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
-func NewRouter(cfg config.Config, db *gorm.DB) *gin.Engine {
+func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 	r := gin.Default()
 
 	// Get JWT secret from environment
@@ -30,19 +33,45 @@ func NewRouter(cfg config.Config, db *gorm.DB) *gin.Engine {
 	)
 
 	// Initialize local payment service
-	paymentSvc := payment.NewLocalPaymentService(db)
+	paymentSvc := payment.NewLocalPaymentService(dbs.Virtual)
 
 	// Initialize services
-	tourSvc, err := tours.NewService(db, cfg)
+	tourSvc, err := tours.NewService(dbs.Virtual, dbs.Main, cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize tour service: %v", err)
 	}
 
-	tourHandler := tours.NewHandler(tourSvc)
+	propertySvc := properties.NewService(dbs.Virtual, dbs.Main)
 
-	// Health check endpoint (no auth)
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "healthy"})
+	tourHandler := tours.NewHandler(tourSvc)
+	propertyHandler := properties.NewHandler(propertySvc)
+
+	// Test endpoint to debug JWT tokens
+	r.POST("/api/debug/token", func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(400, gin.H{"error": "No authorization header"})
+			return
+		}
+		
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		
+		// Try to decode without verification first to see the structure
+		token, _, err := new(jwt.Parser).ParseUnverified(tokenString, &auth.UserClaims{})
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Failed to parse token", "details": err.Error()})
+			return
+		}
+		
+		if claims, ok := token.Claims.(*auth.UserClaims); ok {
+			c.JSON(200, gin.H{
+				"header": token.Header,
+				"claims": claims,
+				"raw_token": tokenString[:50] + "...", // First 50 chars for debugging
+			})
+		} else {
+			c.JSON(400, gin.H{"error": "Invalid claims format"})
+		}
 	})
 
 	// Auth validation endpoint
@@ -115,6 +144,9 @@ func NewRouter(cfg config.Config, db *gorm.DB) *gin.Engine {
 
 	// Register tour routes
 	tourHandler.RegisterRoutes(api)
+	
+	// Register property routes
+	propertyHandler.RegisterRoutes(api)
 
 	return r
 }

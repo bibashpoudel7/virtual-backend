@@ -74,6 +74,18 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		claims := token.Claims.(jwt.MapClaims)
 		c.Set("user", claims) // pass claims to handlers
+		
+		// Extract user_id from claims (TheNimto uses 'sub' for user ID)
+		if sub, ok := claims["sub"].(string); ok {
+			c.Set("user_id", sub)
+		}
+		
+		// For TheNimto backend, role is sent via X-User-Role header, not in JWT
+		role := c.GetHeader("X-User-Role")
+		if role != "" {
+			c.Set("role", role)
+		}
+		
 		c.Next()
 	}
 }
