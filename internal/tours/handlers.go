@@ -2,9 +2,7 @@
 package tours
 
 import (
-	"bytes"
-	"io"
-	"log"
+	"fmt"
 	"net/http"
 
 	"backend/internal/models"
@@ -31,11 +29,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		toursGroup.GET("", h.ListAllTours)
 		toursGroup.POST("/:id/scenes", h.CreateScene)
 		toursGroup.GET("/:id/scenes", h.ListScenes)
-	}
-
-	propertiesGroup := r.Group("/properties")
-	{
-		propertiesGroup.GET("/:propertyID/tours", h.ListTours)
+		toursGroup.GET("/by-property/:propertyID", h.ListTours)
 	}
 
 	// NEW: scene media + hotspots
@@ -66,8 +60,20 @@ func (h *Handler) CreateTour(c *gin.Context) {
 
 	println(uuid.GenerateUUIDv7())
 
-	// Create tour with proper defaults
+	// Get user from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	
+	role, exists := c.Get("role")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
 
+	// Create tour with proper defaults
 	tour := models.Tour{
 		ID:                 uuid.GenerateUUIDv7(),
 		Name:               getString(requestData, "name", ""),
@@ -77,23 +83,82 @@ func (h *Handler) CreateTour(c *gin.Context) {
 		DefaultPitchSpeed:  getFloat64(requestData, "default_pitch_speed", 0.0),
 		IsPublished:        getBool(requestData, "is_published", false),
 		AutoplayEnabled:    getBool(requestData, "autoplay_enabled", false),
-		Source:             "standalone",
+		Source:             "main_app", // Since this is from the virtual tour system
+		UserID:             userID.(string),
 	}
 
-	// Get user from context
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
-	tour.UserID = userID.(string)
-
-	// Get property ID from context (if from main app) - NOT from request body
-	if propertyID, exists := c.Get("property_id"); exists && propertyID != nil {
-		if pid, ok := propertyID.(*int64); ok && pid != nil {
-			tour.PropertyID = pid
-			tour.Source = "main_app"
+	// Handle property association based on role
+	if propertyIDValue, exists := requestData["property_id"]; exists && propertyIDValue != nil {
+		var propertyID string
+		
+		// Handle both string and number inputs
+		switch v := propertyIDValue.(type) {
+		case string:
+			propertyID = v
+		case float64:
+			// Convert number to string (for backward compatibility)
+			propertyID = fmt.Sprintf("%.0f", v)
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid property_id format"})
+			return
 		}
+		
+		// Convert role string to number
+		roleStr := role.(string)
+		var roleNum int
+		
+		switch roleStr {
+		case "1", "SUPERADMIN":
+			roleNum = 1
+		case "3", "VENDOR":
+			roleNum = 3
+		default:
+			if roleStr == "1" {
+				roleNum = 1
+			} else if roleStr == "3" {
+				roleNum = 3
+			} else {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Only vendors and superadmins can create property tours"})
+				return
+			}
+		}
+		
+		// Validate property access based on role
+		switch roleNum {
+		case 1: // SUPERADMIN - can create tours for any approved venue property
+		case 3: // VENDOR - can only create tours for their own approved properties
+			// Validate that this property belongs to the vendor
+			if err := h.service.ValidateVendorPropertyAccess(userID.(string), propertyID); err != nil {
+				c.JSON(http.StatusForbidden, gin.H{"error": "You can only create tours for your own approved properties"})
+				return
+			}
+		default:
+			c.JSON(http.StatusForbidden, gin.H{"error": "Only vendors and superadmins can create property tours"})
+			return
+		}
+		
+		// Check if property already has a tour
+		if existingTour, err := h.service.GetTourByPropertyID(propertyID); err == nil && existingTour != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "This property already has a virtual tour"})
+			return
+		}
+		
+		tour.PropertyID = &propertyID
+	} else {
+		// No property_id provided - allow standalone tours for all roles
+		roleStr := role.(string)
+		
+		// Set appropriate source based on role
+		switch roleStr {
+		case "1": // SUPERADMIN
+			tour.Source = "standalone"
+		case "2": // CUSTOMER  
+			tour.Source = "standalone"
+		case "3": // VENDOR
+			tour.Source = "standalone"
+		default:
+			tour.Source = "standalone"
+		}		
 	}
 
 	// Check if payment is required
@@ -259,13 +324,22 @@ func (h *Handler) ListAllTours(c *gin.Context) {
 		return
 	}
 
-	tours, err := h.service.ListUserTours(userID.(string))
+	// Get tours with property information
+	toursWithProperty, err := h.service.ListAllTours()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	
+	// Filter tours to only show user's tours
+	var userTours []models.TourWithProperty
+	for _, tour := range toursWithProperty {
+		if tour.UserID == userID.(string) {
+			userTours = append(userTours, tour)
+		}
+	}
 
-	c.JSON(http.StatusOK, tours)
+	c.JSON(http.StatusOK, userTours)
 }
 
 func (h *Handler) CreateScene(c *gin.Context) {
@@ -289,21 +363,11 @@ func (h *Handler) CreateScene(c *gin.Context) {
 		return
 	}
 
-	// Log the raw request body for debugging
-	body, _ := c.GetRawData()
-	log.Printf("CreateScene - Raw request body: %s", string(body))
-
-	// Reset the body so it can be read again
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
-
 	var scene models.Scene
 	if err := c.ShouldBindJSON(&scene); err != nil {
-		log.Printf("CreateScene - Failed to bind JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	log.Printf("CreateScene - Parsed scene: %+v", scene)
 
 	// Validate required fields
 	if scene.Name == "" {

@@ -18,7 +18,7 @@ type UserClaims struct {
 	Username   string   `json:"username"` // NestJS might use username
 	PropertyID *int64   `json:"property_id,omitempty"`
 	Role       string   `json:"role"`
-	Roles      []string `json:"roles"` // NestJS might use array of roles
+	Roles      interface{} `json:"roles"` // Can be number, string, or array
 	jwt.StandardClaims
 }
 
@@ -36,6 +36,7 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 
 		println(authHeader)
 		println(jwtSecret)
+
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 			c.Abort()
@@ -67,10 +68,34 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 				userID = fmt.Sprintf("%d", claims.ID)
 			}
 
-			// Normalize role from different formats
-			role := claims.Role
-			if role == "" && len(claims.Roles) > 0 {
-				role = claims.Roles[0]
+			// For TheNimto backend, roles are not in JWT token
+			// Try to get role from custom header first, then from JWT claims
+			role := c.GetHeader("X-User-Role")
+			if role == "" {
+				role = claims.Role
+				if role == "" {
+					// Handle roles field which can be number, string, or array
+					switch v := claims.Roles.(type) {
+					case float64:
+						role = fmt.Sprintf("%.0f", v)
+					case int:
+						role = fmt.Sprintf("%d", v)
+					case string:
+						role = v
+					case []interface{}:
+						if len(v) > 0 {
+							if str, ok := v[0].(string); ok {
+								role = str
+							} else if num, ok := v[0].(float64); ok {
+								role = fmt.Sprintf("%.0f", num)
+							}
+						}
+					case []string:
+						if len(v) > 0 {
+							role = v[0]
+						}
+					}
+				}
 			}
 
 			// Store user info in context
@@ -122,8 +147,28 @@ func OptionalAuthMiddleware(jwtSecret string) gin.HandlerFunc {
 
 				// Normalize role from different formats
 				role := claims.Role
-				if role == "" && len(claims.Roles) > 0 {
-					role = claims.Roles[0]
+				if role == "" {
+					// Handle roles field which can be number, string, or array
+					switch v := claims.Roles.(type) {
+					case float64:
+						role = fmt.Sprintf("%.0f", v)
+					case int:
+						role = fmt.Sprintf("%d", v)
+					case string:
+						role = v
+					case []interface{}:
+						if len(v) > 0 {
+							if str, ok := v[0].(string); ok {
+								role = str
+							} else if num, ok := v[0].(float64); ok {
+								role = fmt.Sprintf("%.0f", num)
+							}
+						}
+					case []string:
+						if len(v) > 0 {
+							role = v[0]
+						}
+					}
 				}
 
 				c.Set("user", claims)

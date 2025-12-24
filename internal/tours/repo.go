@@ -32,6 +32,8 @@ type Repository interface {
 	ListHotspots(sceneID string) ([]models.Hotspot, error)
 	UpdateHotspot(hotspot *models.Hotspot) error
 	DeleteHotspot(hotspotID string) error
+	
+	GetTourByPropertyID(propertyID string) (*models.Tour, error)
 }
 
 type tourRepository struct {
@@ -191,4 +193,14 @@ func (r *tourRepository) CountUserTours(userID string) (int64, error) {
 	var count int64
 	err := r.db.Model(&models.Tour{}).Where("user_id = ?", userID).Count(&count).Error
 	return count, err
+}
+
+// GetTourByPropertyID gets an existing tour for a property
+func (r *tourRepository) GetTourByPropertyID(propertyID string) (*models.Tour, error) {
+	var tour models.Tour
+	err := r.db.Where("property_id = ?", propertyID).First(&tour).Error
+	if err != nil {
+		return nil, err
+	}
+	return &tour, nil
 }

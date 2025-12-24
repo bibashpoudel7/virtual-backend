@@ -5,6 +5,7 @@ import (
 	"backend/internal/config"
 	"backend/internal/models"
 	"errors"
+	"fmt"
 
 	"gorm.io/gorm"
 )
@@ -20,7 +21,7 @@ type Service interface {
 	UpdateTour(tour *models.Tour) error
 	DeleteTour(id string) error
 	ListTours(propertyID string) ([]models.Tour, error)
-	ListAllTours() ([]models.Tour, error)
+	ListAllTours() ([]models.TourWithProperty, error)
 	ListUserTours(userID string) ([]models.Tour, error)
 
 	// Scene management
@@ -48,16 +49,22 @@ type Service interface {
 	// Payment related
 	CheckIfPaymentRequired(userID string) (bool, error)
 	CreatePaymentSession(tour *models.Tour) (*models.PaymentSession, error)
+	
+	// Property validation
+	ValidateVendorPropertyAccess(userID string, propertyID string) error
+	GetTourByPropertyID(propertyID string) (*models.Tour, error)
 }
 
 type service struct {
-	repo Repository
+	repo   Repository
+	mainDB *gorm.DB // For property validation queries
 }
 
-func NewService(db *gorm.DB, cfg config.Config) (Service, error) {
-	repo := NewRepository(db)
+func NewService(virtualDB, mainDB *gorm.DB, cfg config.Config) (Service, error) {
+	repo := NewRepository(virtualDB)
 	return &service{
-		repo: repo,
+		repo:   repo,
+		mainDB: mainDB,
 	}, nil
 }
 
@@ -98,8 +105,35 @@ func (s *service) DeleteTour(id string) error {
 	return s.repo.DeleteTour(id)
 }
 
-func (s *service) ListAllTours() ([]models.Tour, error) {
-	return s.repo.ListAllTours()
+func (s *service) ListAllTours() ([]models.TourWithProperty, error) {
+	// Get all tours from virtual database
+	tours, err := s.repo.ListAllTours()
+	if err != nil {
+		return nil, err
+	}
+	
+	// Convert to TourWithProperty and fetch property names
+	var toursWithProperty []models.TourWithProperty
+	for _, tour := range tours {
+		tourWithProp := models.TourWithProperty{Tour: tour}
+		
+		// If tour has a property_id, fetch the property name from main database
+		if tour.PropertyID != nil && *tour.PropertyID != "" {
+			var propertyName string
+			err := s.mainDB.Table("properties").
+				Select("property_name").
+				Where("id = ?", *tour.PropertyID).
+				Scan(&propertyName).Error
+			
+			if err == nil && propertyName != "" {
+				tourWithProp.PropertyName = &propertyName
+			}
+		}
+		
+		toursWithProperty = append(toursWithProperty, tourWithProp)
+	}
+	
+	return toursWithProperty, nil
 }
 
 func (s *service) ListUserTours(userID string) ([]models.Tour, error) {
@@ -163,4 +197,40 @@ func (s *service) CreatePaymentSession(tour *models.Tour) (*models.PaymentSessio
 	}
 
 	return session, nil
+}
+
+// ValidateVendorPropertyAccess checks if a vendor has access to a specific property
+func (s *service) ValidateVendorPropertyAccess(userID string, propertyID string) error {
+	var count int64
+	
+	// Check if the property belongs to a company created by this user
+	query := `
+		SELECT COUNT(*) 
+		FROM properties p 
+		JOIN companies c ON p.company_id = c.id 
+		WHERE p.id = ? 
+		AND c.created_by_user_id = ? 
+		AND p.approval_status = ?
+		AND p.property_type = ?
+		AND c.approved = true
+		AND c.status = ?
+	`
+	
+	// Status.APPROVED = 1 (for both property approval_status and company status)
+	// PropertyType.VENUE = 0
+	err := s.mainDB.Raw(query, propertyID, userID, 1, 0, 1).Scan(&count).Error
+	if err != nil {
+		return err
+	}
+	
+	if count == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	
+	return nil
+}
+
+// GetTourByPropertyID gets an existing tour for a property
+func (s *service) GetTourByPropertyID(propertyID string) (*models.Tour, error) {
+	return s.repo.GetTourByPropertyID(propertyID)
 }
