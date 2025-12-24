@@ -5,7 +5,6 @@ import (
 	"backend/internal/config"
 	"backend/internal/models"
 	"errors"
-	"fmt"
 
 	"gorm.io/gorm"
 )
