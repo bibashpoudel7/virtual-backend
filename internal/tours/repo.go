@@ -142,7 +142,36 @@ func (r *tourRepository) UpdateTour(tour *models.Tour) error {
 }
 
 func (r *tourRepository) DeleteTour(id string) error {
-	return r.db.Delete(&models.Tour{}, "id = ?", id).Error
+	// Start a transaction to ensure all deletes succeed or fail together
+	tx := r.db.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// First, delete all hotspots for scenes belonging to this tour
+	if err := tx.Exec("DELETE FROM hotspots WHERE scene_id IN (SELECT id FROM scenes WHERE tour_id = ?)", id).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// Then, delete all scenes belonging to this tour
+	if err := tx.Delete(&models.Scene{}, "tour_id = ?", id).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// Finally, delete the tour itself
+	if err := tx.Delete(&models.Tour{}, "id = ?", id).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	return tx.Commit().Error
 }
 
 func (r *tourRepository) ListAllTours() ([]models.Tour, error) {
