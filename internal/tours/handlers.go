@@ -30,9 +30,18 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		toursGroup.POST("/:id/scenes", h.CreateScene)
 		toursGroup.GET("/:id/scenes", h.ListScenes)
 		toursGroup.GET("/by-property/:propertyID", h.ListTours)
+		
+		// Superadmin endpoints
+		toursGroup.PUT("/:id/publish", h.UpdateTourPublishStatus)
+		
+		// Tour-specific hotspot routes (alternative URL pattern)
+		toursGroup.GET("/:id/scenes/:sceneId/hotspots", h.ListHotspotsByTourAndScene)
+		toursGroup.POST("/:id/scenes/:sceneId/hotspots", h.CreateHotspotByTourAndScene)
+		toursGroup.PUT("/:id/scenes/:sceneId/hotspots/:hotspotId", h.UpdateHotspotByTourAndScene)
+		toursGroup.DELETE("/:id/scenes/:sceneId/hotspots/:hotspotId", h.DeleteHotspotByTourAndScene)
 	}
 
-	// NEW: scene media + hotspots
+	// scene media + hotspots
 	scenes := r.Group("/scenes")
 	{
 		scenes.GET("/:sceneId", h.GetScene)
@@ -206,14 +215,22 @@ func (h *Handler) GetTour(c *gin.Context) {
 		return
 	}
 
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
 	tour, err := h.service.GetTour(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
 		return
 	}
 
-	// Check if the tour belongs to the authenticated user
-	if tour.UserID != userID.(string) {
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
@@ -295,6 +312,13 @@ func (h *Handler) DeleteTour(c *gin.Context) {
 		return
 	}
 	
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+	
 	// Get existing tour first to check ownership
 	existingTour, err := h.service.GetTour(id)
 	if err != nil {
@@ -302,8 +326,9 @@ func (h *Handler) DeleteTour(c *gin.Context) {
 		return
 	}
 	
-	// Check if the tour belongs to the authenticated user
-	if existingTour.UserID != userID.(string) {
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && existingTour.UserID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
@@ -324,6 +349,13 @@ func (h *Handler) ListAllTours(c *gin.Context) {
 		return
 	}
 
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
 	// Get tours with property information
 	toursWithProperty, err := h.service.ListAllTours()
 	if err != nil {
@@ -331,7 +363,15 @@ func (h *Handler) ListAllTours(c *gin.Context) {
 		return
 	}
 	
-	// Filter tours to only show user's tours
+	// Check if user is superadmin (role "1")
+	roleStr := role.(string)
+	if roleStr == "1" {
+		// Superadmin can see all tours
+		c.JSON(http.StatusOK, toursWithProperty)
+		return
+	}
+	
+	// For non-superadmin users, filter tours to only show user's tours
 	var userTours []models.TourWithProperty
 	for _, tour := range toursWithProperty {
 		if tour.UserID == userID.(string) {
@@ -340,6 +380,56 @@ func (h *Handler) ListAllTours(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, userTours)
+}
+
+// UpdateTourPublishStatus updates the publication status of a tour (superadmin only)
+func (h *Handler) UpdateTourPublishStatus(c *gin.Context) {
+	tourID := c.Param("id")
+	
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+	
+	// Check if user is superadmin (role "1")
+	roleStr := role.(string)
+	if roleStr != "1" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only superadmins can update tour publication status"})
+		return
+	}
+	
+	// Parse request body
+	var request struct {
+		IsPublished bool `json:"is_published"`
+	}
+	
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	// Get existing tour
+	tour, err := h.service.GetTour(tourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Tour not found"})
+		return
+	}
+	
+	// Update publication status
+	tour.IsPublished = request.IsPublished
+	
+	if err := h.service.UpdateTour(tour); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Tour publication status updated successfully",
+		"tour_id": tourID,
+		"is_published": request.IsPublished,
+	})
 }
 
 func (h *Handler) CreateScene(c *gin.Context) {
@@ -408,13 +498,23 @@ func (h *Handler) ListScenes(c *gin.Context) {
 		return
 	}
 
-	// Verify tour ownership
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// Verify tour ownership or superadmin access
 	tour, err := h.service.GetTour(tourID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
 		return
 	}
-	if tour.UserID != userID.(string) {
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
@@ -438,19 +538,29 @@ func (h *Handler) GetScene(c *gin.Context) {
 		return
 	}
 
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
 	scene, err := h.service.GetScene(sceneID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
 		return
 	}
 
-	// Verify tour ownership through scene's tour
+	// Verify tour ownership through scene's tour or superadmin access
 	tour, err := h.service.GetTour(scene.TourID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
 		return
 	}
-	if tour.UserID != userID.(string) {
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
@@ -468,6 +578,13 @@ func (h *Handler) UpdateScene(c *gin.Context) {
 		return
 	}
 
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
 	// Get existing scene first
 	existingScene, err := h.service.GetScene(sceneID)
 	if err != nil {
@@ -475,13 +592,16 @@ func (h *Handler) UpdateScene(c *gin.Context) {
 		return
 	}
 
-	// Verify tour ownership through scene's tour
+	// Verify tour ownership through scene's tour or superadmin access
 	tour, err := h.service.GetTour(existingScene.TourID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
 		return
 	}
-	if tour.UserID != userID.(string) {
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
@@ -511,6 +631,13 @@ func (h *Handler) DeleteScene(c *gin.Context) {
 		return
 	}
 
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
 	// Get existing scene first
 	existingScene, err := h.service.GetScene(sceneID)
 	if err != nil {
@@ -518,13 +645,16 @@ func (h *Handler) DeleteScene(c *gin.Context) {
 		return
 	}
 
-	// Verify tour ownership through scene's tour
+	// Verify tour ownership through scene's tour or superadmin access
 	tour, err := h.service.GetTour(existingScene.TourID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
 		return
 	}
-	if tour.UserID != userID.(string) {
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
@@ -547,19 +677,29 @@ func (h *Handler) UpdateHotspot(c *gin.Context) {
 		return
 	}
 
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
 	var hotspot models.Hotspot
 	if err := c.ShouldBindJSON(&hotspot); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Verify tour ownership through hotspot's tour
+	// Verify tour ownership through hotspot's tour or superadmin access
 	tour, err := h.service.GetTour(hotspot.TourID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
 		return
 	}
-	if tour.UserID != userID.(string) {
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
@@ -583,6 +723,13 @@ func (h *Handler) DeleteHotspot(c *gin.Context) {
 		return
 	}
 
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
 	// Get existing hotspot first
 	existingHotspot, err := h.service.GetHotspot(hotspotID)
 	if err != nil {
@@ -590,13 +737,16 @@ func (h *Handler) DeleteHotspot(c *gin.Context) {
 		return
 	}
 
-	// Verify tour ownership through hotspot's tour
+	// Verify tour ownership through hotspot's tour or superadmin access
 	tour, err := h.service.GetTour(existingHotspot.TourID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
 		return
 	}
-	if tour.UserID != userID.(string) {
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
@@ -607,6 +757,206 @@ func (h *Handler) DeleteHotspot(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusNoContent, nil)
+}
+
+type CreateHotspotReq struct {
+	Kind  string  `json:"kind" binding:"required"` // e.g., "icon", "text", "link", "video"
+	Yaw   float64 `json:"yaw" binding:"required"`
+	Pitch float64 `json:"pitch" binding:"required"`
+	// Arbitrary JSON payload (iconUrl, text, link, etc.)
+	Payload       map[string]any `json:"payload"`
+	TourID        string         `json:"tour_id" binding:"required"`
+	TargetSceneID string         `json:"target_scene_id" binding:"required"`
+}
+
+func (h *Handler) CreateHotspot(c *gin.Context) {
+	sceneID := c.Param("sceneId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	var req CreateHotspotReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify tour ownership or superadmin access
+	tour, err := h.service.GetTour(req.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	hs, err := h.service.CreateHotspot(sceneID, req.TourID, req.TargetSceneID, req.Kind, req.Yaw, req.Pitch, req.Payload)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, hs)
+}
+
+func (h *Handler) ListHotspots(c *gin.Context) {
+	sceneID := c.Param("sceneId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// Debug logging
+	println("ListHotspots - UserID:", userID.(string))
+	println("ListHotspots - Role:", role.(string))
+
+	// Get the scene to verify ownership
+	scene, err := h.service.GetScene(sceneID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+
+	println("ListHotspots - SceneID:", sceneID)
+	println("ListHotspots - Scene.TourID:", scene.TourID)
+
+	// Verify tour ownership through scene's tour or superadmin access
+	tour, err := h.service.GetTour(scene.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+	
+	println("ListHotspots - Tour.UserID:", tour.UserID)
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		println("ListHotspots - Access denied: roleStr =", roleStr, ", tour.UserID =", tour.UserID, ", userID =", userID.(string))
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	println("ListHotspots - Access granted")
+
+	list, err := h.service.ListHotspots(sceneID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, list)
+}
+
+// GetPublicTour returns tour data for public viewing (no authentication required)
+func (h *Handler) GetPublicTour(c *gin.Context) {
+	id := c.Param("id")
+
+	tour, err := h.service.GetTour(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+
+	// Only return published tours for public viewing
+	if !tour.IsPublished {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not available for public viewing"})
+		return
+	}
+
+	c.JSON(http.StatusOK, tour)
+}
+
+// GetPublicTours returns all published tours for public viewing (no authentication required)
+func (h *Handler) GetPublicTours(c *gin.Context) {
+	tours, err := h.service.ListAllPublicTours()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, tours)
+}
+
+// GetPublicTourScenes returns scenes for a tour for public viewing (no authentication required)
+func (h *Handler) GetPublicTourScenes(c *gin.Context) {
+	tourID := c.Param("id")
+
+	// Verify tour exists and is published
+	tour, err := h.service.GetTour(tourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+
+	if !tour.IsPublished {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not available for public viewing"})
+		return
+	}
+
+	scenes, err := h.service.ListScenes(tourID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, scenes)
+}
+
+// GetPublicSceneHotspots returns hotspots for a scene for public viewing (no authentication required)
+func (h *Handler) GetPublicSceneHotspots(c *gin.Context) {
+	sceneID := c.Param("sceneId")
+
+	// Get scene to verify it exists and belongs to a published tour
+	scene, err := h.service.GetScene(sceneID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+
+	// Verify the tour is published
+	tour, err := h.service.GetTour(scene.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+
+	if !tour.IsPublished {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not available for public viewing"})
+		return
+	}
+
+	hotspots, err := h.service.ListHotspots(sceneID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, hotspots)
 }
 
 // Helper functions for safe type extraction from map
@@ -651,4 +1001,245 @@ func getBool(m map[string]interface{}, key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+// Tour-specific hotspot handlers (alternative URL pattern for frontend compatibility)
+
+func (h *Handler) ListHotspotsByTourAndScene(c *gin.Context) {
+	tourID := c.Param("id")
+	sceneID := c.Param("sceneId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// Verify tour ownership or superadmin access
+	tour, err := h.service.GetTour(tourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	// Verify scene belongs to tour
+	scene, err := h.service.GetScene(sceneID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+	
+	if scene.TourID != tourID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scene does not belong to specified tour"})
+		return
+	}
+
+	list, err := h.service.ListHotspots(sceneID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, list)
+}
+
+func (h *Handler) CreateHotspotByTourAndScene(c *gin.Context) {
+	tourID := c.Param("id")
+	sceneID := c.Param("sceneId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	var req CreateHotspotReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify tour ownership or superadmin access
+	tour, err := h.service.GetTour(tourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	// Verify scene belongs to tour
+	scene, err := h.service.GetScene(sceneID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+	
+	if scene.TourID != tourID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scene does not belong to specified tour"})
+		return
+	}
+
+	// Override tour ID from URL parameter
+	req.TourID = tourID
+
+	hs, err := h.service.CreateHotspot(sceneID, req.TourID, req.TargetSceneID, req.Kind, req.Yaw, req.Pitch, req.Payload)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, hs)
+}
+
+func (h *Handler) UpdateHotspotByTourAndScene(c *gin.Context) {
+	tourID := c.Param("id")
+	sceneID := c.Param("sceneId")
+	hotspotID := c.Param("hotspotId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	var hotspot models.Hotspot
+	if err := c.ShouldBindJSON(&hotspot); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify tour ownership or superadmin access
+	tour, err := h.service.GetTour(tourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	// Verify scene belongs to tour
+	scene, err := h.service.GetScene(sceneID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+	
+	if scene.TourID != tourID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scene does not belong to specified tour"})
+		return
+	}
+
+	hotspot.ID = hotspotID
+	hotspot.TourID = tourID
+	if err := h.service.UpdateHotspot(&hotspot); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, hotspot)
+}
+
+func (h *Handler) DeleteHotspotByTourAndScene(c *gin.Context) {
+	tourID := c.Param("id")
+	sceneID := c.Param("sceneId")
+	hotspotID := c.Param("hotspotId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// Verify tour ownership or superadmin access
+	tour, err := h.service.GetTour(tourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	// Verify scene belongs to tour
+	scene, err := h.service.GetScene(sceneID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+	
+	if scene.TourID != tourID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scene does not belong to specified tour"})
+		return
+	}
+
+	// Get existing hotspot to verify it belongs to the scene
+	existingHotspot, err := h.service.GetHotspot(hotspotID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "hotspot not found"})
+		return
+	}
+	
+	if existingHotspot.SceneID != sceneID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "hotspot does not belong to specified scene"})
+		return
+	}
+
+	if err := h.service.DeleteHotspot(hotspotID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusNoContent, nil)
 }

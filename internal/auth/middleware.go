@@ -10,6 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// UserService interface for querying user data
+type UserService interface {
+	GetUserRole(userID string) (string, error)
+}
+
 type UserClaims struct {
 	UserID     string   `json:"user_id"`
 	Sub        string   `json:"sub"` // NestJS often uses 'sub' for user ID
@@ -30,7 +35,7 @@ const (
 )
 
 // AuthMiddleware validates JWT tokens from the main NestJS backend
-func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
+func AuthMiddleware(jwtSecret string, userService UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 
@@ -97,7 +102,20 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 					}
 				}
 			}
-
+			
+			// If role is still empty, look it up from the database
+			if role == "" && userID != "" {
+				// Query the main database for user role
+				dbRole, err := userService.GetUserRole(userID)
+				if err != nil {
+					println("Failed to get user role from database:", err.Error())
+					// Continue without role - let the handlers decide access
+				} else {
+					role = dbRole
+					println("Retrieved role from database for user", userID+":", role)
+				}
+			}
+			
 			// Store user info in context
 			c.Set("user", claims)
 			c.Set("user_id", userID)
@@ -117,7 +135,7 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 }
 
 // OptionalAuthMiddleware allows both authenticated and unauthenticated requests
-func OptionalAuthMiddleware(jwtSecret string) gin.HandlerFunc {
+func OptionalAuthMiddleware(jwtSecret string, userService UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -168,6 +186,19 @@ func OptionalAuthMiddleware(jwtSecret string) gin.HandlerFunc {
 						if len(v) > 0 {
 							role = v[0]
 						}
+					}
+				}
+
+				// If role is still empty, look it up from the database
+				if role == "" && userID != "" {
+					// Query the main database for user role
+					dbRole, err := userService.GetUserRole(userID)
+					if err != nil {
+						println("Failed to get user role from database:", err.Error())
+						// Continue without role - let the handlers decide access
+					} else {
+						role = dbRole
+						println("Retrieved role from database for user", userID+":", role)
 					}
 				}
 

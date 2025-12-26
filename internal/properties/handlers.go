@@ -148,3 +148,48 @@ func (h *Handler) GetCompanyInfo(c *gin.Context) {
 	
 	c.JSON(http.StatusOK, companyInfo)
 }
+
+// GetPropertyTour checks if a property has a virtual tour
+func (h *Handler) GetPropertyTour(c *gin.Context) {
+	propertyID := c.Param("propertyId")
+	
+	tour, err := h.service.GetTourByPropertyID(propertyID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"hasVirtualTour": false,
+			"message": "No virtual tour found for this property",
+		})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"hasVirtualTour": true,
+		"tour": gin.H{
+			"id":   tour.ID,
+			"name": tour.Name,
+		},
+	})
+}
+
+// GetPropertyTourDetails returns detailed virtual tour information for a property
+func (h *Handler) GetPropertyTourDetails(c *gin.Context) {
+	propertyID := c.Param("propertyId")
+	
+	tour, err := h.service.GetTourByPropertyID(propertyID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Virtual tour not found for this property"})
+		return
+	}
+	
+	// Get scenes for the tour
+	scenes, err := h.service.GetScenesByTourID(tour.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tour scenes"})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"tour":   tour,
+		"scenes": scenes,
+	})
+}
