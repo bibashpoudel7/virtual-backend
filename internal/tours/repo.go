@@ -18,6 +18,7 @@ type Repository interface {
 	DeleteTour(id string) error
 	FindByProperty(propertyID string) ([]models.Tour, error)
 	ListAllTours() ([]models.Tour, error)
+	ListAllPublicTours() ([]models.Tour, error)
 	ListUserTours(userID string) ([]models.Tour, error)
 	CountUserTours(userID string) (int64, error)
 
@@ -149,6 +150,31 @@ func (r *tourRepository) ListAllTours() ([]models.Tour, error) {
 	if err := r.db.Find(&tours).Error; err != nil {
 		return nil, err
 	}
+	return tours, nil
+}
+
+func (r *tourRepository) ListAllPublicTours() ([]models.Tour, error) {
+	var tours []models.Tour
+	if err := r.db.Where("is_published = ?", true).Find(&tours).Error; err != nil {
+		return nil, err
+	}
+	
+	// For each tour, get the actual scene count from the scenes table
+	for i := range tours {
+		var sceneCount int64
+		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
+		
+		// Create TourScene entries to represent the scene count
+		// This is a workaround since the frontend expects tour_scenes array
+		tours[i].TourScenes = make([]models.TourScene, sceneCount)
+		for j := int64(0); j < sceneCount; j++ {
+			tours[i].TourScenes[j] = models.TourScene{
+				TourID:        tours[i].ID,
+				SequenceOrder: int(j + 1),
+			}
+		}
+	}
+	
 	return tours, nil
 }
 

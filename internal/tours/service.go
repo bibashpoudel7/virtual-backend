@@ -21,6 +21,7 @@ type Service interface {
 	DeleteTour(id string) error
 	ListTours(propertyID string) ([]models.Tour, error)
 	ListAllTours() ([]models.TourWithProperty, error)
+	ListAllPublicTours() ([]models.TourWithProperty, error)
 	ListUserTours(userID string) ([]models.Tour, error)
 
 	// Scene management
@@ -107,6 +108,37 @@ func (s *service) DeleteTour(id string) error {
 func (s *service) ListAllTours() ([]models.TourWithProperty, error) {
 	// Get all tours from virtual database
 	tours, err := s.repo.ListAllTours()
+	if err != nil {
+		return nil, err
+	}
+	
+	// Convert to TourWithProperty and fetch property names
+	var toursWithProperty []models.TourWithProperty
+	for _, tour := range tours {
+		tourWithProp := models.TourWithProperty{Tour: tour}
+		
+		// If tour has a property_id, fetch the property name from main database
+		if tour.PropertyID != nil && *tour.PropertyID != "" {
+			var propertyName string
+			err := s.mainDB.Table("properties").
+				Select("property_name").
+				Where("id = ?", *tour.PropertyID).
+				Scan(&propertyName).Error
+			
+			if err == nil && propertyName != "" {
+				tourWithProp.PropertyName = &propertyName
+			}
+		}
+		
+		toursWithProperty = append(toursWithProperty, tourWithProp)
+	}
+	
+	return toursWithProperty, nil
+}
+
+func (s *service) ListAllPublicTours() ([]models.TourWithProperty, error) {
+	// Get all published tours from virtual database
+	tours, err := s.repo.ListAllPublicTours()
 	if err != nil {
 		return nil, err
 	}

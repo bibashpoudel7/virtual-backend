@@ -11,6 +11,8 @@ type Service interface {
 	GetAllApprovedVenueProperties() ([]models.PropertyResponse, error)
 	GetPropertyByID(propertyID string) (*models.Property, error)
 	GetUserCompanyInfo(userID string) (*models.CompanyInfo, error)
+	GetTourByPropertyID(propertyID string) (*models.Tour, error)
+	GetScenesByTourID(tourID string) ([]models.Scene, error)
 }
 
 type service struct {
@@ -214,4 +216,28 @@ func (s *service) GetPropertyByID(propertyID string) (*models.Property, error) {
 	}
 	
 	return &property, nil
+}
+
+// GetTourByPropertyID gets a tour by property ID
+func (s *service) GetTourByPropertyID(propertyID string) (*models.Tour, error) {
+	var tour models.Tour
+	
+	err := s.virtualDB.Where("property_id = ?", propertyID).First(&tour).Error
+	if err != nil {
+		return nil, fmt.Errorf("tour not found for property %s: %w", propertyID, err)
+	}
+	
+	return &tour, nil
+}
+
+// GetScenesByTourID gets all scenes for a tour
+func (s *service) GetScenesByTourID(tourID string) ([]models.Scene, error) {
+	var scenes []models.Scene
+	
+	err := s.virtualDB.Where("tour_id = ?", tourID).Order("order_index ASC").Find(&scenes).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch scenes for tour %s: %w", tourID, err)
+	}
+	
+	return scenes, nil
 }
