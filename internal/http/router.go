@@ -9,6 +9,7 @@ import (
 	"backend/internal/payment"
 	"backend/internal/properties"
 	"backend/internal/tours"
+	"backend/internal/users"
 	"log"
 	"os"
 	"strings"
@@ -36,6 +37,7 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 	paymentSvc := payment.NewLocalPaymentService(dbs.Virtual)
 
 	// Initialize services
+	userSvc := users.NewService(dbs.Main)
 	tourSvc, err := tours.NewService(dbs.Virtual, dbs.Main, cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize tour service: %v", err)
@@ -75,7 +77,7 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 	})
 
 	// Auth validation endpoint
-	r.POST("/api/auth/validate", auth.OptionalAuthMiddleware(jwtSecret), func(c *gin.Context) {
+	r.POST("/api/auth/validate", auth.OptionalAuthMiddleware(jwtSecret, userSvc), func(c *gin.Context) {
 		if user, exists := auth.GetUserFromContext(c); exists {
 			c.JSON(200, gin.H{
 				"valid": true,
@@ -88,7 +90,7 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 
 	// Payment endpoints - protected
 	paymentAPI := r.Group("/api/payment")
-	paymentAPI.Use(auth.AuthMiddleware(jwtSecret))
+	paymentAPI.Use(auth.AuthMiddleware(jwtSecret, userSvc))
 	{
 		paymentAPI.GET("/check-limit", func(c *gin.Context) {
 			userID := c.GetString("user_id")
@@ -138,9 +140,25 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 		})
 	}
 
+	// Public API routes (no auth required) - for integration with TheNimto backend
+	publicAPI := r.Group("/api")
+	{
+		// Public property tour check endpoint for TheNimto backend integration
+		publicAPI.GET("/properties/:propertyId/tour", propertyHandler.GetPropertyTour)
+		publicAPI.GET("/properties/:propertyId/tour-details", propertyHandler.GetPropertyTourDetails)
+		
+		// Public tour viewing endpoints for end users
+		publicAPI.GET("/tours/public", tourHandler.GetPublicTours)
+		publicAPI.GET("/tours/:id/public", tourHandler.GetPublicTour)
+		publicAPI.GET("/tours/:id/scenes/public", tourHandler.GetPublicTourScenes)
+		
+		// Public hotspots endpoints for tour viewing
+		publicAPI.GET("/scenes/:sceneId/hotspots/public", tourHandler.GetPublicSceneHotspots)
+	}
+
 	// API routes - protected by auth
 	api := r.Group("/api")
-	api.Use(auth.AuthMiddleware(jwtSecret))
+	api.Use(auth.AuthMiddleware(jwtSecret, userSvc))
 
 	// Register tour routes
 	tourHandler.RegisterRoutes(api)

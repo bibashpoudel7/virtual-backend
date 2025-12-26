@@ -39,10 +39,10 @@ func ConfigureCORS(allowedOrigins []string) gin.HandlerFunc {
 // DefaultCORSConfig returns default CORS configuration
 func DefaultCORSConfig() gin.HandlerFunc {
 	defaultOrigins := []string{
-		"http://localhost:3000",  // Main NestJS backend
-		"http://localhost:3001",  // Main frontend
+		"http://localhost:3000",  // Virtual frontend (Next.js)
+		"http://localhost:3001",  // Main frontend (TheNimto web app)
 		"http://localhost:3002",  // Microfrontend dev
-		"http://localhost:8080",  // Microservice
+		"http://localhost:8080",  // Microservice (NestJS backend - main TheNimto)
 		"https://yourdomain.com", // Production domain
 	}
 
