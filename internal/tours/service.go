@@ -31,7 +31,7 @@ type Service interface {
 	DeleteScene(sceneID string) error
 	ListScenes(tourID string) ([]models.Scene, error)
 
-	// NEW:
+	// Hotspot methods
 	CreateHotspot(
 		sceneID,
 		tourID,
@@ -45,6 +45,20 @@ type Service interface {
 	ListHotspots(sceneID string) ([]models.Hotspot, error)
 	UpdateHotspot(hotspot *models.Hotspot) error
 	DeleteHotspot(hotspotID string) error
+
+	// Overlay methods
+	CreateOverlay(
+		sceneID,
+		tourID,
+		kind string,
+		yaw,
+		pitch float64,
+		payload map[string]any,
+	) (*models.Overlay, error)
+	GetOverlay(overlayID string) (*models.Overlay, error)
+	ListOverlays(sceneID string) ([]models.Overlay, error)
+	UpdateOverlay(overlay *models.Overlay) error
+	DeleteOverlay(overlayID string) error
 
 	// Payment related
 	CheckIfPaymentRequired(userID string) (bool, error)
@@ -264,4 +278,25 @@ func (s *service) ValidateVendorPropertyAccess(userID string, propertyID string)
 // GetTourByPropertyID gets an existing tour for a property
 func (s *service) GetTourByPropertyID(propertyID string) (*models.Tour, error) {
 	return s.repo.GetTourByPropertyID(propertyID)
+}
+
+// Overlay service methods
+func (s *service) CreateOverlay(sceneID, tourID, kind string, yaw, pitch float64, payload map[string]any) (*models.Overlay, error) {
+	return s.repo.CreateOverlay(tourID, sceneID, kind, yaw, pitch, payload)
+}
+
+func (s *service) GetOverlay(overlayID string) (*models.Overlay, error) {
+	return s.repo.GetOverlay(overlayID)
+}
+
+func (s *service) ListOverlays(sceneID string) ([]models.Overlay, error) {
+	return s.repo.ListOverlays(sceneID)
+}
+
+func (s *service) UpdateOverlay(overlay *models.Overlay) error {
+	return s.repo.UpdateOverlay(overlay)
+}
+
+func (s *service) DeleteOverlay(overlayID string) error {
+	return s.repo.DeleteOverlay(overlayID)
 }

@@ -58,7 +58,7 @@ func AuthMiddleware(jwtSecret string, userService UserService) gin.HandlerFunc {
 		})
 
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid tokens bibash"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid tokens"})
 			c.Abort()
 			return
 		}

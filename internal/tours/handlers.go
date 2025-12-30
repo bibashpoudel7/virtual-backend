@@ -56,6 +56,12 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		scenes.GET("/:sceneId/hotspots", h.ListHotspots)
 		scenes.PUT("/:sceneId/hotspots/:hotspotId", h.UpdateHotspot)
 		scenes.DELETE("/:sceneId/hotspots/:hotspotId", h.DeleteHotspot)
+
+		// Overlays
+		scenes.POST("/:sceneId/overlays", h.CreateOverlay)
+		scenes.GET("/:sceneId/overlays", h.ListOverlays)
+		scenes.PUT("/:sceneId/overlays/:overlayId", h.UpdateOverlay)
+		scenes.DELETE("/:sceneId/overlays/:overlayId", h.DeleteOverlay)
 	}
 }
 
@@ -766,7 +772,7 @@ type CreateHotspotReq struct {
 	// Arbitrary JSON payload (iconUrl, text, link, etc.)
 	Payload       map[string]any `json:"payload"`
 	TourID        string         `json:"tour_id" binding:"required"`
-	TargetSceneID string         `json:"target_scene_id" binding:"required"`
+	TargetSceneID string         `json:"target_scene_id"`
 }
 
 func (h *Handler) CreateHotspot(c *gin.Context) {
@@ -789,6 +795,12 @@ func (h *Handler) CreateHotspot(c *gin.Context) {
 	var req CreateHotspotReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Custom validation: navigation hotspots require target_scene_id
+	if req.Kind == "navigation" && req.TargetSceneID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target_scene_id is required for navigation hotspots"})
 		return
 	}
 
@@ -959,6 +971,38 @@ func (h *Handler) GetPublicSceneHotspots(c *gin.Context) {
 	c.JSON(http.StatusOK, hotspots)
 }
 
+// GetPublicSceneOverlays returns overlays for a scene for public viewing (no authentication required)
+func (h *Handler) GetPublicSceneOverlays(c *gin.Context) {
+	sceneID := c.Param("sceneId")
+
+	// Get scene to verify it exists and belongs to a published tour
+	scene, err := h.service.GetScene(sceneID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+
+	// Verify the tour is published
+	tour, err := h.service.GetTour(scene.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+
+	if !tour.IsPublished {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not available for public viewing"})
+		return
+	}
+
+	overlays, err := h.service.ListOverlays(sceneID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, overlays)
+}
+
 // Helper functions for safe type extraction from map
 func getString(m map[string]interface{}, key string, defaultValue string) string {
 	if val, exists := m[key]; exists {
@@ -1078,6 +1122,12 @@ func (h *Handler) CreateHotspotByTourAndScene(c *gin.Context) {
 	var req CreateHotspotReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Custom validation: navigation hotspots require target_scene_id
+	if req.Kind == "navigation" && req.TargetSceneID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target_scene_id is required for navigation hotspots"})
 		return
 	}
 
@@ -1237,6 +1287,198 @@ func (h *Handler) DeleteHotspotByTourAndScene(c *gin.Context) {
 	}
 
 	if err := h.service.DeleteHotspot(hotspotID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusNoContent, nil)
+}
+
+// Overlay handlers
+type CreateOverlayReq struct {
+	Kind    string         `json:"kind" binding:"required"` // e.g., "text", "image", "video", "html", "badge", "tooltip"
+	Yaw     float64        `json:"yaw"`
+	Pitch   float64        `json:"pitch"`
+	Payload map[string]any `json:"payload"`
+	TourID  string         `json:"tour_id" binding:"required"`
+}
+
+func (h *Handler) CreateOverlay(c *gin.Context) {
+	sceneID := c.Param("sceneId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	var req CreateOverlayReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify tour ownership or superadmin access
+	tour, err := h.service.GetTour(req.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tour not found"})
+		return
+	}
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	overlay, err := h.service.CreateOverlay(sceneID, req.TourID, req.Kind, req.Yaw, req.Pitch, req.Payload)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, overlay)
+}
+
+func (h *Handler) ListOverlays(c *gin.Context) {
+	sceneID := c.Param("sceneId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// Get the scene to verify ownership
+	scene, err := h.service.GetScene(sceneID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "scene not found"})
+		return
+	}
+
+	// Verify tour ownership through scene's tour or superadmin access
+	tour, err := h.service.GetTour(scene.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	overlays, err := h.service.ListOverlays(sceneID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, overlays)
+}
+
+func (h *Handler) UpdateOverlay(c *gin.Context) {
+	overlayID := c.Param("overlayId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	var overlay models.Overlay
+	if err := c.ShouldBindJSON(&overlay); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify tour ownership through overlay's tour or superadmin access
+	tour, err := h.service.GetTour(overlay.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	overlay.ID = overlayID
+	if err := h.service.UpdateOverlay(&overlay); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, overlay)
+}
+
+func (h *Handler) DeleteOverlay(c *gin.Context) {
+	overlayID := c.Param("overlayId")
+	
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// Get existing overlay first
+	existingOverlay, err := h.service.GetOverlay(overlayID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "overlay not found"})
+		return
+	}
+
+	// Verify tour ownership through overlay's tour or superadmin access
+	tour, err := h.service.GetTour(existingOverlay.TourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
+		return
+	}
+	
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	if err := h.service.DeleteOverlay(overlayID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

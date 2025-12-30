@@ -152,8 +152,9 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 		publicAPI.GET("/tours/:id/public", tourHandler.GetPublicTour)
 		publicAPI.GET("/tours/:id/scenes/public", tourHandler.GetPublicTourScenes)
 		
-		// Public hotspots endpoints for tour viewing
+		// Public hotspots and overlays endpoints for tour viewing
 		publicAPI.GET("/scenes/:sceneId/hotspots/public", tourHandler.GetPublicSceneHotspots)
+		publicAPI.GET("/scenes/:sceneId/overlays/public", tourHandler.GetPublicSceneOverlays)
 	}
 
 	// API routes - protected by auth

@@ -33,6 +33,13 @@ type Repository interface {
 	ListHotspots(sceneID string) ([]models.Hotspot, error)
 	UpdateHotspot(hotspot *models.Hotspot) error
 	DeleteHotspot(hotspotID string) error
+
+	// Overlay methods
+	CreateOverlay(tourID, sceneID, kind string, yaw, pitch float64, payload map[string]any) (*models.Overlay, error)
+	GetOverlay(overlayID string) (*models.Overlay, error)
+	ListOverlays(sceneID string) ([]models.Overlay, error)
+	UpdateOverlay(overlay *models.Overlay) error
+	DeleteOverlay(overlayID string) error
 	
 	GetTourByPropertyID(propertyID string) (*models.Tour, error)
 }
@@ -159,6 +166,12 @@ func (r *tourRepository) DeleteTour(id string) error {
 		return err
 	}
 
+	// Delete all overlays for scenes belonging to this tour
+	if err := tx.Exec("DELETE FROM overlays WHERE scene_id IN (SELECT id FROM scenes WHERE tour_id = ?)", id).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
 	// Then, delete all scenes belonging to this tour
 	if err := tx.Delete(&models.Scene{}, "tour_id = ?", id).Error; err != nil {
 		tx.Rollback()
@@ -225,7 +238,36 @@ func (r *tourRepository) UpdateScene(scene *models.Scene) error {
 }
 
 func (r *tourRepository) DeleteScene(sceneID string) error {
-	return r.db.Delete(&models.Scene{}, "id = ?", sceneID).Error
+	// Start a transaction to ensure all deletes succeed or fail together
+	tx := r.db.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// First, delete all hotspots for this scene
+	if err := tx.Delete(&models.Hotspot{}, "scene_id = ?", sceneID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// Delete all overlays for this scene
+	if err := tx.Delete(&models.Overlay{}, "scene_id = ?", sceneID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// Finally, delete the scene itself
+	if err := tx.Delete(&models.Scene{}, "id = ?", sceneID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	return tx.Commit().Error
 }
 
 func (r *tourRepository) ListScenes(tourID string) ([]models.Scene, error) {
@@ -258,4 +300,63 @@ func (r *tourRepository) GetTourByPropertyID(propertyID string) (*models.Tour, e
 		return nil, err
 	}
 	return &tour, nil
+}
+
+// Overlay repository methods
+func (r *tourRepository) CreateOverlay(tourID, sceneID, kind string, yaw, pitch float64, payload map[string]any) (*models.Overlay, error) {
+	// Verify the scene exists and belongs to the specified tour
+	var scene models.Scene
+	if err := r.db.Select("id, tour_id").Where("id = ?", sceneID).First(&scene).Error; err != nil {
+		return nil, err
+	}
+
+	// Ensure the scene belongs to the specified tour
+	if scene.TourID != tourID {
+		return nil, gorm.ErrInvalidData
+	}
+
+	// marshal payload to JSONB string
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	overlay := &models.Overlay{
+		ID:      uuid.GenerateUUIDv7(),
+		TourID:  tourID,
+		SceneID: sceneID,
+		Kind:    kind,
+		Yaw:     yaw,
+		Pitch:   pitch,
+		Payload: string(b),
+	}
+
+	if err := r.db.Create(overlay).Error; err != nil {
+		return nil, err
+	}
+	return overlay, nil
+}
+
+func (r *tourRepository) GetOverlay(overlayID string) (*models.Overlay, error) {
+	var overlay models.Overlay
+	if err := r.db.Where("id = ?", overlayID).First(&overlay).Error; err != nil {
+		return nil, err
+	}
+	return &overlay, nil
+}
+
+func (r *tourRepository) ListOverlays(sceneID string) ([]models.Overlay, error) {
+	var overlays []models.Overlay
+	if err := r.db.Where("scene_id = ?", sceneID).Order("id asc").Find(&overlays).Error; err != nil {
+		return nil, err
+	}
+	return overlays, nil
+}
+
+func (r *tourRepository) UpdateOverlay(overlay *models.Overlay) error {
+	return r.db.Save(overlay).Error
+}
+
+func (r *tourRepository) DeleteOverlay(overlayID string) error {
+	return r.db.Delete(&models.Overlay{}, "id = ?", overlayID).Error
 }
