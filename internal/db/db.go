@@ -101,6 +101,8 @@ func migrate(db *gorm.DB) error {
 		&models.Scene{},
 		&models.Hotspot{},
 		&models.Overlay{},
+		&models.PlayTour{},
+		&models.PlayTourScene{},
 	)
 }
 

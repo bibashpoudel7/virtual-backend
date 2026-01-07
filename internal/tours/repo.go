@@ -40,8 +40,15 @@ type Repository interface {
 	ListOverlays(sceneID string) ([]models.Overlay, error)
 	UpdateOverlay(overlay *models.Overlay) error
 	DeleteOverlay(overlayID string) error
-	
+
 	GetTourByPropertyID(propertyID string) (*models.Tour, error)
+
+	// PlayTour methods
+	CreatePlayTour(playTour *models.PlayTour) error
+	GetPlayTour(id string) (*models.PlayTour, error)
+	UpdatePlayTour(playTour *models.PlayTour) error
+	DeletePlayTour(id string) error
+	ListPlayTours(tourID string) ([]models.PlayTour, error)
 }
 
 type tourRepository struct {
@@ -200,12 +207,12 @@ func (r *tourRepository) ListAllPublicTours() ([]models.Tour, error) {
 	if err := r.db.Where("is_published = ?", true).Find(&tours).Error; err != nil {
 		return nil, err
 	}
-	
+
 	// For each tour, get the actual scene count from the scenes table
 	for i := range tours {
 		var sceneCount int64
 		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
-		
+
 		// Create TourScene entries to represent the scene count
 		// This is a workaround since the frontend expects tour_scenes array
 		tours[i].TourScenes = make([]models.TourScene, sceneCount)
@@ -216,7 +223,7 @@ func (r *tourRepository) ListAllPublicTours() ([]models.Tour, error) {
 			}
 		}
 	}
-	
+
 	return tours, nil
 }
 
@@ -359,4 +366,75 @@ func (r *tourRepository) UpdateOverlay(overlay *models.Overlay) error {
 
 func (r *tourRepository) DeleteOverlay(overlayID string) error {
 	return r.db.Delete(&models.Overlay{}, "id = ?", overlayID).Error
+}
+
+// PlayTour repository implementations
+
+func (r *tourRepository) CreatePlayTour(playTour *models.PlayTour) error {
+	if playTour.ID == "" {
+		playTour.ID = uuid.GenerateUUIDv7()
+	}
+	for i := range playTour.PlayTourScenes {
+		if playTour.PlayTourScenes[i].ID == "" {
+			playTour.PlayTourScenes[i].ID = uuid.GenerateUUIDv7()
+		}
+		playTour.PlayTourScenes[i].PlayTourID = playTour.ID
+	}
+	return r.db.Create(playTour).Error
+}
+
+func (r *tourRepository) GetPlayTour(id string) (*models.PlayTour, error) {
+	var playTour models.PlayTour
+	if err := r.db.Preload("PlayTourScenes").Where("id = ?", id).First(&playTour).Error; err != nil {
+		return nil, err
+	}
+	return &playTour, nil
+}
+
+func (r *tourRepository) UpdatePlayTour(playTour *models.PlayTour) error {
+	// Use a transaction to handle play tour scenes updates
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Update the play tour itself
+		if err := tx.Save(playTour).Error; err != nil {
+			return err
+		}
+
+		// Delete existing scenes that are not in the new list (simplified: delete all and re-add or handle carefully)
+		// For simplicity in this implementation, we'll delete all current scenes and re-add them
+		// if they have IDs or manage them individually if we want to be more efficient.
+		// However, a common pattern for "sequence" management is replacing the whole set.
+
+		if err := tx.Where("play_tour_id = ?", playTour.ID).Delete(&models.PlayTourScene{}).Error; err != nil {
+			return err
+		}
+
+		for i := range playTour.PlayTourScenes {
+			if playTour.PlayTourScenes[i].ID == "" {
+				playTour.PlayTourScenes[i].ID = uuid.GenerateUUIDv7()
+			}
+			playTour.PlayTourScenes[i].PlayTourID = playTour.ID
+			if err := tx.Create(&playTour.PlayTourScenes[i]).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+func (r *tourRepository) DeletePlayTour(id string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("play_tour_id = ?", id).Delete(&models.PlayTourScene{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.PlayTour{}, "id = ?", id).Error
+	})
+}
+
+func (r *tourRepository) ListPlayTours(tourID string) ([]models.PlayTour, error) {
+	var playTours []models.PlayTour
+	if err := r.db.Preload("PlayTourScenes").Where("tour_id = ?", tourID).Find(&playTours).Error; err != nil {
+		return nil, err
+	}
+	return playTours, nil
 }

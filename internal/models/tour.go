@@ -75,13 +75,14 @@ type Scene struct {
 
 // Hotspot represents clickable points in a scene
 type Hotspot struct {
-	ID            string  `json:"id" gorm:"primaryKey;size:50;column:id"`
-	TourID        string  `json:"tour_id" gorm:"index;column:tour_id"`
-	SceneID       string  `json:"scene_id" gorm:"index;column:scene_id"`
-	TargetSceneID string  `json:"target_scene_id" gorm:"index;column:target_scene_id"`
-	Kind          string  `json:"kind" gorm:"column:kind"` // navigation, info, image
-	Yaw           float64 `json:"yaw" gorm:"column:yaw"`
-	Pitch         float64 `json:"pitch" gorm:"column:pitch"`
+	ID                  string  `json:"id" gorm:"primaryKey;size:50;column:id"`
+	TourID              string  `json:"tour_id" gorm:"index;column:tour_id"`
+	SceneID             string  `json:"scene_id" gorm:"index;column:scene_id"`
+	TargetSceneID       string  `json:"target_scene_id" gorm:"index;column:target_scene_id"`
+	Kind                string  `json:"kind" gorm:"column:kind"` // navigation, info, image
+	Yaw                 float64 `json:"yaw" gorm:"column:yaw"`
+	Pitch               float64 `json:"pitch" gorm:"column:pitch"`
+	TransitionDirection string  `json:"transition_direction" gorm:"column:transition_direction"` // forward, backward, left, right, up, down
 
 	Payload string `json:"payload,omitempty" gorm:"type:jsonb;column:payload"` // supports multiple targets + rotation points
 
@@ -98,6 +99,42 @@ type Overlay struct {
 	Pitch   float64 `json:"pitch" gorm:"column:pitch"`
 
 	Payload string `json:"payload,omitempty" gorm:"type:jsonb;column:payload"`
+
+	BaseModel
+}
+
+// PlayTour represents a selective tour with custom camera movements
+type PlayTour struct {
+	ID     string `json:"id" gorm:"primaryKey;size:50;column:id"`
+	TourID string `json:"tour_id" gorm:"index;column:tour_id"`
+	Name   string `json:"name" gorm:"column:name"`
+	UserID string `json:"user_id" gorm:"column:user_id;size:50;index"`
+
+	PlayTourScenes []PlayTourScene `json:"play_tour_scenes" gorm:"foreignKey:PlayTourID"`
+
+	BaseModel
+}
+
+// PlayTourScene defines a scene in a PlayTour with its camera movement path
+type PlayTourScene struct {
+	ID            string `json:"id" gorm:"primaryKey;size:50;column:id"`
+	PlayTourID    string `json:"play_tour_id" gorm:"index;column:play_tour_id"`
+	SceneID       string `json:"scene_id" gorm:"index;column:scene_id"`
+	SequenceOrder int    `json:"sequence_order" gorm:"column:sequence_order"`
+
+	// Start camera position
+	StartYaw   float64 `json:"start_yaw" gorm:"column:start_yaw"`
+	StartPitch float64 `json:"start_pitch" gorm:"column:start_pitch"`
+	StartFOV   float64 `json:"start_fov" gorm:"column:start_fov"`
+
+	// End camera position
+	EndYaw   float64 `json:"end_yaw" gorm:"column:end_yaw"`
+	EndPitch float64 `json:"end_pitch" gorm:"column:end_pitch"`
+	EndFOV   float64 `json:"end_fov" gorm:"column:end_fov"`
+
+	MoveDuration        int    `json:"move_duration" gorm:"column:move_duration;default:5000"` // milliseconds
+	WaitDuration        int    `json:"wait_duration" gorm:"column:wait_duration;default:2000"` // milliseconds
+	TransitionDirection string `json:"transition_direction" gorm:"column:transition_direction;default:forward"`
 
 	BaseModel
 }

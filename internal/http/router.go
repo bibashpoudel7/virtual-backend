@@ -55,20 +55,20 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 			c.JSON(400, gin.H{"error": "No authorization header"})
 			return
 		}
-		
+
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		
+
 		// Try to decode without verification first to see the structure
 		token, _, err := new(jwt.Parser).ParseUnverified(tokenString, &auth.UserClaims{})
 		if err != nil {
 			c.JSON(400, gin.H{"error": "Failed to parse token", "details": err.Error()})
 			return
 		}
-		
+
 		if claims, ok := token.Claims.(*auth.UserClaims); ok {
 			c.JSON(200, gin.H{
-				"header": token.Header,
-				"claims": claims,
+				"header":    token.Header,
+				"claims":    claims,
 				"raw_token": tokenString[:50] + "...", // First 50 chars for debugging
 			})
 		} else {
@@ -146,15 +146,16 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 		// Public property tour check endpoint for TheNimto backend integration
 		publicAPI.GET("/properties/:propertyId/tour", propertyHandler.GetPropertyTour)
 		publicAPI.GET("/properties/:propertyId/tour-details", propertyHandler.GetPropertyTourDetails)
-		
+
 		// Public tour viewing endpoints for end users
 		publicAPI.GET("/tours/public", tourHandler.GetPublicTours)
 		publicAPI.GET("/tours/:id/public", tourHandler.GetPublicTour)
 		publicAPI.GET("/tours/:id/scenes/public", tourHandler.GetPublicTourScenes)
-		
+
 		// Public hotspots and overlays endpoints for tour viewing
 		publicAPI.GET("/scenes/:sceneId/hotspots/public", tourHandler.GetPublicSceneHotspots)
 		publicAPI.GET("/scenes/:sceneId/overlays/public", tourHandler.GetPublicSceneOverlays)
+		publicAPI.GET("/tours/:id/play-tours/public", tourHandler.GetPublicPlayTours)
 	}
 
 	// API routes - protected by auth
@@ -163,7 +164,7 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 
 	// Register tour routes
 	tourHandler.RegisterRoutes(api)
-	
+
 	// Register property routes
 	propertyHandler.RegisterRoutes(api)
 

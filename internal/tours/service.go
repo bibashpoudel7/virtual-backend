@@ -63,10 +63,17 @@ type Service interface {
 	// Payment related
 	CheckIfPaymentRequired(userID string) (bool, error)
 	CreatePaymentSession(tour *models.Tour) (*models.PaymentSession, error)
-	
+
 	// Property validation
 	ValidateVendorPropertyAccess(userID string, propertyID string) error
 	GetTourByPropertyID(propertyID string) (*models.Tour, error)
+
+	// PlayTour methods
+	CreatePlayTour(playTour *models.PlayTour) error
+	GetPlayTour(id string) (*models.PlayTour, error)
+	UpdatePlayTour(playTour *models.PlayTour) error
+	DeletePlayTour(id string) error
+	ListPlayTours(tourID string) ([]models.PlayTour, error)
 }
 
 type service struct {
@@ -125,12 +132,12 @@ func (s *service) ListAllTours() ([]models.TourWithProperty, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Convert to TourWithProperty and fetch property names
 	var toursWithProperty []models.TourWithProperty
 	for _, tour := range tours {
 		tourWithProp := models.TourWithProperty{Tour: tour}
-		
+
 		// If tour has a property_id, fetch the property name from main database
 		if tour.PropertyID != nil && *tour.PropertyID != "" {
 			var propertyName string
@@ -138,15 +145,15 @@ func (s *service) ListAllTours() ([]models.TourWithProperty, error) {
 				Select("property_name").
 				Where("id = ?", *tour.PropertyID).
 				Scan(&propertyName).Error
-			
+
 			if err == nil && propertyName != "" {
 				tourWithProp.PropertyName = &propertyName
 			}
 		}
-		
+
 		toursWithProperty = append(toursWithProperty, tourWithProp)
 	}
-	
+
 	return toursWithProperty, nil
 }
 
@@ -156,12 +163,12 @@ func (s *service) ListAllPublicTours() ([]models.TourWithProperty, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Convert to TourWithProperty and fetch property names
 	var toursWithProperty []models.TourWithProperty
 	for _, tour := range tours {
 		tourWithProp := models.TourWithProperty{Tour: tour}
-		
+
 		// If tour has a property_id, fetch the property name from main database
 		if tour.PropertyID != nil && *tour.PropertyID != "" {
 			var propertyName string
@@ -169,15 +176,15 @@ func (s *service) ListAllPublicTours() ([]models.TourWithProperty, error) {
 				Select("property_name").
 				Where("id = ?", *tour.PropertyID).
 				Scan(&propertyName).Error
-			
+
 			if err == nil && propertyName != "" {
 				tourWithProp.PropertyName = &propertyName
 			}
 		}
-		
+
 		toursWithProperty = append(toursWithProperty, tourWithProp)
 	}
-	
+
 	return toursWithProperty, nil
 }
 
@@ -247,7 +254,7 @@ func (s *service) CreatePaymentSession(tour *models.Tour) (*models.PaymentSessio
 // ValidateVendorPropertyAccess checks if a vendor has access to a specific property
 func (s *service) ValidateVendorPropertyAccess(userID string, propertyID string) error {
 	var count int64
-	
+
 	// Check if the property belongs to a company created by this user
 	query := `
 		SELECT COUNT(*) 
@@ -260,18 +267,18 @@ func (s *service) ValidateVendorPropertyAccess(userID string, propertyID string)
 		AND c.approved = true
 		AND c.status = ?
 	`
-	
+
 	// Status.APPROVED = 1 (for both property approval_status and company status)
 	// PropertyType.VENUE = 0
 	err := s.mainDB.Raw(query, propertyID, userID, 1, 0, 1).Scan(&count).Error
 	if err != nil {
 		return err
 	}
-	
+
 	if count == 0 {
 		return gorm.ErrRecordNotFound
 	}
-	
+
 	return nil
 }
 
@@ -299,4 +306,26 @@ func (s *service) UpdateOverlay(overlay *models.Overlay) error {
 
 func (s *service) DeleteOverlay(overlayID string) error {
 	return s.repo.DeleteOverlay(overlayID)
+}
+
+// PlayTour service implementations
+
+func (s *service) CreatePlayTour(playTour *models.PlayTour) error {
+	return s.repo.CreatePlayTour(playTour)
+}
+
+func (s *service) GetPlayTour(id string) (*models.PlayTour, error) {
+	return s.repo.GetPlayTour(id)
+}
+
+func (s *service) UpdatePlayTour(playTour *models.PlayTour) error {
+	return s.repo.UpdatePlayTour(playTour)
+}
+
+func (s *service) DeletePlayTour(id string) error {
+	return s.repo.DeletePlayTour(id)
+}
+
+func (s *service) ListPlayTours(tourID string) ([]models.PlayTour, error) {
+	return s.repo.ListPlayTours(tourID)
 }
