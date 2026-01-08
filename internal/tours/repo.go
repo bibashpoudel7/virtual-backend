@@ -385,7 +385,9 @@ func (r *tourRepository) CreatePlayTour(playTour *models.PlayTour) error {
 
 func (r *tourRepository) GetPlayTour(id string) (*models.PlayTour, error) {
 	var playTour models.PlayTour
-	if err := r.db.Preload("PlayTourScenes").Where("id = ?", id).First(&playTour).Error; err != nil {
+	if err := r.db.Preload("PlayTourScenes", func(db *gorm.DB) *gorm.DB {
+		return db.Order("sequence_order asc")
+	}).Where("id = ?", id).First(&playTour).Error; err != nil {
 		return nil, err
 	}
 	return &playTour, nil
@@ -433,7 +435,9 @@ func (r *tourRepository) DeletePlayTour(id string) error {
 
 func (r *tourRepository) ListPlayTours(tourID string) ([]models.PlayTour, error) {
 	var playTours []models.PlayTour
-	if err := r.db.Preload("PlayTourScenes").Where("tour_id = ?", tourID).Find(&playTours).Error; err != nil {
+	if err := r.db.Preload("PlayTourScenes", func(db *gorm.DB) *gorm.DB {
+		return db.Order("sequence_order asc")
+	}).Where("tour_id = ?", tourID).Find(&playTours).Error; err != nil {
 		return nil, err
 	}
 	return playTours, nil

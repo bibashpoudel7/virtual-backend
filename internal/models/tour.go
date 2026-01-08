@@ -132,9 +132,11 @@ type PlayTourScene struct {
 	EndPitch float64 `json:"end_pitch" gorm:"column:end_pitch"`
 	EndFOV   float64 `json:"end_fov" gorm:"column:end_fov"`
 
-	MoveDuration        int    `json:"move_duration" gorm:"column:move_duration;default:5000"` // milliseconds
-	WaitDuration        int    `json:"wait_duration" gorm:"column:wait_duration;default:2000"` // milliseconds
-	TransitionDirection string `json:"transition_direction" gorm:"column:transition_direction;default:forward"`
+	MoveDuration        int     `json:"move_duration" gorm:"column:move_duration;default:5000"` // milliseconds
+	WaitDuration        int     `json:"wait_duration" gorm:"column:wait_duration;default:2000"` // milliseconds
+	TransitionDirection string  `json:"transition_direction" gorm:"column:transition_direction;default:forward"`
+	Title               *string `json:"title,omitempty" gorm:"column:title"`
+	Description         *string `json:"description,omitempty" gorm:"column:description"`
 
 	BaseModel
 }
