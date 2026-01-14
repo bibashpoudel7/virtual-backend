@@ -21,6 +21,7 @@ type Repository interface {
 	ListAllPublicTours() ([]models.Tour, error)
 	ListUserTours(userID string) ([]models.Tour, error)
 	CountUserTours(userID string) (int64, error)
+	UnfeatureAllTours() error
 
 	CreateScene(scene *models.Scene) error
 	GetScene(sceneID string) (*models.Scene, error)
@@ -233,6 +234,10 @@ func (r *tourRepository) ListUserTours(userID string) ([]models.Tour, error) {
 		return nil, err
 	}
 	return tours, nil
+}
+
+func (r *tourRepository) UnfeatureAllTours() error {
+	return r.db.Model(&models.Tour{}).Where("is_featured_on_homepage = ?", true).Update("is_featured_on_homepage", false).Error
 }
 
 func (r *tourRepository) CreateScene(scene *models.Scene) error {

@@ -33,6 +33,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 		// Superadmin endpoints
 		toursGroup.PUT("/:id/publish", h.UpdateTourPublishStatus)
+		toursGroup.PUT("/:id/feature", h.UpdateTourFeaturedStatus)
 
 		// Tour-specific hotspot routes (alternative URL pattern)
 		toursGroup.GET("/:id/scenes/:sceneId/hotspots", h.ListHotspotsByTourAndScene)
@@ -445,6 +446,71 @@ func (h *Handler) UpdateTourPublishStatus(c *gin.Context) {
 		"message":      "Tour publication status updated successfully",
 		"tour_id":      tourID,
 		"is_published": request.IsPublished,
+	})
+}
+
+// UpdateTourFeaturedStatus updates the featured status of a tour (tour owner or superadmin)
+func (h *Handler) UpdateTourFeaturedStatus(c *gin.Context) {
+	tourID := c.Param("id")
+
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// Parse request body
+	var request struct {
+		IsFeatured bool `json:"is_featured_on_homepage"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get existing tour
+	tour, err := h.service.GetTour(tourID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Tour not found"})
+		return
+	}
+
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && tour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only tour owners and superadmins can feature tours"})
+		return
+	}
+
+	// If featuring this tour, unfeature all other tours first
+	if request.IsFeatured {
+		if err := h.service.UnfeatureAllTours(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unfeature other tours"})
+			return
+		}
+	}
+
+	// Update featured status
+	tour.IsFeaturedOnHomepage = request.IsFeatured
+
+	if err := h.service.UpdateTour(tour); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":                 "Tour featured status updated successfully",
+		"tour_id":                 tourID,
+		"is_featured_on_homepage": request.IsFeatured,
 	})
 }
 

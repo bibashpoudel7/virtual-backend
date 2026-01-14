@@ -23,6 +23,7 @@ type Service interface {
 	ListAllTours() ([]models.TourWithProperty, error)
 	ListAllPublicTours() ([]models.TourWithProperty, error)
 	ListUserTours(userID string) ([]models.Tour, error)
+	UnfeatureAllTours() error
 
 	// Scene management
 	CreateScene(scene *models.Scene) error
@@ -190,6 +191,10 @@ func (s *service) ListAllPublicTours() ([]models.TourWithProperty, error) {
 
 func (s *service) ListUserTours(userID string) ([]models.Tour, error) {
 	return s.repo.ListUserTours(userID)
+}
+
+func (s *service) UnfeatureAllTours() error {
+	return s.repo.UnfeatureAllTours()
 }
 
 func (s *service) CreateScene(scene *models.Scene) error {
