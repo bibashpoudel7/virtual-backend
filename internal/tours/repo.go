@@ -83,7 +83,7 @@ func (r *tourRepository) FindByStringID(id string) (*models.Tour, error) {
 
 func (r *tourRepository) FindByProperty(propertyID string) ([]models.Tour, error) {
 	var tours []models.Tour
-	if err := r.db.Where("property_id = ?", propertyID).Find(&tours).Error; err != nil {
+	if err := r.db.Where("property_id = ?", propertyID).Order("created_at desc").Find(&tours).Error; err != nil {
 		return nil, err
 	}
 	return tours, nil
@@ -197,7 +197,7 @@ func (r *tourRepository) DeleteTour(id string) error {
 
 func (r *tourRepository) ListAllTours() ([]models.Tour, error) {
 	var tours []models.Tour
-	if err := r.db.Find(&tours).Error; err != nil {
+	if err := r.db.Order("created_at desc").Find(&tours).Error; err != nil {
 		return nil, err
 	}
 	return tours, nil
@@ -284,7 +284,7 @@ func (r *tourRepository) DeleteScene(sceneID string) error {
 
 func (r *tourRepository) ListScenes(tourID string) ([]models.Scene, error) {
 	var scenes []models.Scene
-	if err := r.db.Where("tour_id = ?", tourID).Order("scene_order asc").Find(&scenes).Error; err != nil {
+	if err := r.db.Preload("Hotspots").Preload("Overlays").Where("tour_id = ?", tourID).Order("scene_order asc").Find(&scenes).Error; err != nil {
 		return nil, err
 	}
 	return scenes, nil
