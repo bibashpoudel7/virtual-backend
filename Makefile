@@ -13,7 +13,7 @@ install-air: ## Install Air for hot-reload
 .PHONY: dev
 dev: ## Run backend with hot-reload (requires Air)
 	@echo "Starting backend with hot-reload..."
-	@air
+	@if command -v air >/dev/null 2>&1; then air; else ~/go/bin/air; fi
 
 .PHONY: dev-watch
 dev-watch: ## Run backend with file watching and auto-restart
