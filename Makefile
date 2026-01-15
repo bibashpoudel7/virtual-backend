@@ -23,13 +23,13 @@ dev-watch: ## Run backend with file watching and auto-restart
 .PHONY: build
 build: ## Build the backend binary
 	@echo "Building backend..."
-	@go build -o bin/server ./cmd/server
-	@echo "Build complete! Binary at bin/server"
+	@go build -o bin/api ./cmd/api
+	@echo "Build complete! Binary at bin/api"
 
 .PHONY: run
 run: build ## Build and run the backend
 	@echo "Running backend..."
-	@./bin/server
+	@./bin/api
 
 .PHONY: test
 test: ## Run tests
