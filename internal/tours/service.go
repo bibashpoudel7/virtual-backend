@@ -30,7 +30,7 @@ type Service interface {
 	GetScene(sceneID string) (*models.Scene, error)
 	UpdateScene(scene *models.Scene) error
 	DeleteScene(sceneID string) error
-	ListScenes(tourID string) ([]models.Scene, error)
+	ListScenes(tourID string, page, limit int) ([]models.Scene, int64, error)
 
 	// Hotspot methods
 	CreateHotspot(
@@ -213,8 +213,20 @@ func (s *service) DeleteScene(sceneID string) error {
 	return s.repo.DeleteScene(sceneID)
 }
 
-func (s *service) ListScenes(tourID string) ([]models.Scene, error) {
-	return s.repo.ListScenes(tourID)
+func (s *service) ListScenes(tourID string, page, limit int) ([]models.Scene, int64, error) {
+	offset := (page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+	scenes, err := s.repo.ListScenes(tourID, offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	count, err := s.repo.CountScenes(tourID)
+	if err != nil {
+		return scenes, 0, err
+	}
+	return scenes, count, nil
 }
 
 func (s *service) UpdateHotspot(hotspot *models.Hotspot) error {

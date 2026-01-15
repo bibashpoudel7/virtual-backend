@@ -4,6 +4,7 @@ package tours
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"backend/internal/models"
 	"backend/internal/pkg/uuid"
@@ -601,13 +602,21 @@ func (h *Handler) ListScenes(c *gin.Context) {
 		return
 	}
 
-	scenes, err := h.service.ListScenes(tourID)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	scenes, total, err := h.service.ListScenes(tourID, page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, scenes)
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "Scenes listed successfully",
+		"datas":      scenes,
+		"total":      total,
+		"statusCode": http.StatusOK,
+	})
 }
 
 func (h *Handler) GetScene(c *gin.Context) {
@@ -1006,13 +1015,21 @@ func (h *Handler) GetPublicTourScenes(c *gin.Context) {
 		return
 	}
 
-	scenes, err := h.service.ListScenes(tourID)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	scenes, total, err := h.service.ListScenes(tourID, page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, scenes)
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "Scenes listed successfully",
+		"datas":      scenes,
+		"total":      total,
+		"statusCode": http.StatusOK,
+	})
 }
 
 // GetPublicSceneHotspots returns hotspots for a scene for public viewing (no authentication required)

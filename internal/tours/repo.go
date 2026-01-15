@@ -27,7 +27,8 @@ type Repository interface {
 	GetScene(sceneID string) (*models.Scene, error)
 	UpdateScene(scene *models.Scene) error
 	DeleteScene(sceneID string) error
-	ListScenes(tourID string) ([]models.Scene, error)
+	ListScenes(tourID string, offset, limit int) ([]models.Scene, error)
+	CountScenes(tourID string) (int64, error)
 
 	CreateHotspot(tourID, sceneID, targetSceneID, kind string, yaw, pitch float64, payload map[string]any) (*models.Hotspot, error)
 	GetHotspot(hotspotID string) (*models.Hotspot, error)
@@ -86,6 +87,14 @@ func (r *tourRepository) FindByProperty(propertyID string) ([]models.Tour, error
 	if err := r.db.Where("property_id = ?", propertyID).Order("created_at desc").Find(&tours).Error; err != nil {
 		return nil, err
 	}
+
+	// For each tour, get the actual scene count from the scenes table
+	for i := range tours {
+		var sceneCount int64
+		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
+		tours[i].TourScenes = make([]models.TourScene, sceneCount)
+	}
+
 	return tours, nil
 }
 
@@ -200,6 +209,14 @@ func (r *tourRepository) ListAllTours() ([]models.Tour, error) {
 	if err := r.db.Order("created_at desc").Find(&tours).Error; err != nil {
 		return nil, err
 	}
+
+	// For each tour, get the actual scene count from the scenes table
+	for i := range tours {
+		var sceneCount int64
+		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
+		tours[i].TourScenes = make([]models.TourScene, sceneCount)
+	}
+
 	return tours, nil
 }
 
@@ -230,9 +247,17 @@ func (r *tourRepository) ListAllPublicTours() ([]models.Tour, error) {
 
 func (r *tourRepository) ListUserTours(userID string) ([]models.Tour, error) {
 	var tours []models.Tour
-	if err := r.db.Where("user_id = ?", userID).Find(&tours).Error; err != nil {
+	if err := r.db.Where("user_id = ?", userID).Order("created_at desc").Find(&tours).Error; err != nil {
 		return nil, err
 	}
+
+	// For each tour, get the actual scene count from the scenes table
+	for i := range tours {
+		var sceneCount int64
+		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
+		tours[i].TourScenes = make([]models.TourScene, sceneCount)
+	}
+
 	return tours, nil
 }
 
@@ -282,12 +307,24 @@ func (r *tourRepository) DeleteScene(sceneID string) error {
 	return tx.Commit().Error
 }
 
-func (r *tourRepository) ListScenes(tourID string) ([]models.Scene, error) {
+func (r *tourRepository) ListScenes(tourID string, offset, limit int) ([]models.Scene, error) {
 	var scenes []models.Scene
-	if err := r.db.Preload("Hotspots").Preload("Overlays").Where("tour_id = ?", tourID).Order("scene_order asc").Find(&scenes).Error; err != nil {
+	query := r.db.Preload("Hotspots").Preload("Overlays").Where("tour_id = ?", tourID).Order("scene_order asc")
+	if limit > 0 {
+		query = query.Limit(limit).Offset(offset)
+	}
+	if err := query.Find(&scenes).Error; err != nil {
 		return nil, err
 	}
 	return scenes, nil
+}
+
+func (r *tourRepository) CountScenes(tourID string) (int64, error) {
+	var count int64
+	if err := r.db.Model(&models.Scene{}).Where("tour_id = ?", tourID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (r *tourRepository) UpdateHotspot(hotspot *models.Hotspot) error {
