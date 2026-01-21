@@ -25,6 +25,9 @@ type Tour struct {
 	AutoPauseOnInteraction bool   `json:"auto_pause_on_interaction" gorm:"column:auto_pause_on_interaction;default:true"`
 	AutoRestartDelay       int    `json:"auto_restart_delay" gorm:"column:auto_restart_delay;default:30000"` // milliseconds to wait before restarting after interaction
 
+	// Thumbnail URL from first scene (not stored in DB, populated at runtime)
+	ThumbnailURL *string `json:"thumbnail_url,omitempty" gorm:"-"`
+
 	TourScenes []TourScene `json:"tour_scenes" gorm:"foreignKey:TourID"`
 
 	BaseModel

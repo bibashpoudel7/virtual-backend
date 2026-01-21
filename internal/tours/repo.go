@@ -88,10 +88,17 @@ func (r *tourRepository) FindByProperty(propertyID string) ([]models.Tour, error
 		return nil, err
 	}
 
-	// For each tour, get the actual scene count from the scenes table
+	// For each tour, get the actual scene count and thumbnail URL from the first scene
 	for i := range tours {
 		var sceneCount int64
 		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
+
+		// Get the first scene's src_original_url for thumbnail
+		var firstScene models.Scene
+		if err := r.db.Where("tour_id = ?", tours[i].ID).Order("scene_order asc, created_at asc").First(&firstScene).Error; err == nil {
+			tours[i].ThumbnailURL = firstScene.SrcOriginalURL
+		}
+
 		tours[i].TourScenes = make([]models.TourScene, sceneCount)
 	}
 
@@ -210,10 +217,17 @@ func (r *tourRepository) ListAllTours() ([]models.Tour, error) {
 		return nil, err
 	}
 
-	// For each tour, get the actual scene count from the scenes table
+	// For each tour, get the actual scene count and thumbnail URL from the first scene
 	for i := range tours {
 		var sceneCount int64
 		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
+
+		// Get the first scene's src_original_url for thumbnail
+		var firstScene models.Scene
+		if err := r.db.Where("tour_id = ?", tours[i].ID).Order("scene_order asc, created_at asc").First(&firstScene).Error; err == nil {
+			tours[i].ThumbnailURL = firstScene.SrcOriginalURL
+		}
+
 		tours[i].TourScenes = make([]models.TourScene, sceneCount)
 	}
 
@@ -226,10 +240,16 @@ func (r *tourRepository) ListAllPublicTours() ([]models.Tour, error) {
 		return nil, err
 	}
 
-	// For each tour, get the actual scene count from the scenes table
+	// For each tour, get the actual scene count and thumbnail URL from the first scene
 	for i := range tours {
 		var sceneCount int64
 		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
+
+		// Get the first scene's src_original_url for thumbnail
+		var firstScene models.Scene
+		if err := r.db.Where("tour_id = ?", tours[i].ID).Order("scene_order asc, created_at asc").First(&firstScene).Error; err == nil {
+			tours[i].ThumbnailURL = firstScene.SrcOriginalURL
+		}
 
 		// Create TourScene entries to represent the scene count
 		// This is a workaround since the frontend expects tour_scenes array
@@ -251,10 +271,17 @@ func (r *tourRepository) ListUserTours(userID string) ([]models.Tour, error) {
 		return nil, err
 	}
 
-	// For each tour, get the actual scene count from the scenes table
+	// For each tour, get the actual scene count and thumbnail URL from the first scene
 	for i := range tours {
 		var sceneCount int64
 		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
+
+		// Get the first scene's src_original_url for thumbnail
+		var firstScene models.Scene
+		if err := r.db.Where("tour_id = ?", tours[i].ID).Order("scene_order asc, created_at asc").First(&firstScene).Error; err == nil {
+			tours[i].ThumbnailURL = firstScene.SrcOriginalURL
+		}
+
 		tours[i].TourScenes = make([]models.TourScene, sceneCount)
 	}
 
