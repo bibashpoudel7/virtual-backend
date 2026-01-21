@@ -5,6 +5,7 @@ package http
 import (
 	"backend/internal/auth"
 	"backend/internal/config"
+	"backend/internal/contact"
 	"backend/internal/db"
 	"backend/internal/payment"
 	"backend/internal/properties"
@@ -44,9 +45,11 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 	}
 
 	propertySvc := properties.NewService(dbs.Virtual, dbs.Main)
+	contactSvc := contact.NewService(dbs.Virtual)
 
 	tourHandler := tours.NewHandler(tourSvc)
 	propertyHandler := properties.NewHandler(propertySvc)
+	contactHandler := contact.NewHandler(contactSvc)
 
 	// Test endpoint to debug JWT tokens
 	r.POST("/api/debug/token", func(c *gin.Context) {
@@ -143,6 +146,9 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 	// Public API routes (no auth required) - for integration with TheNimto backend
 	publicAPI := r.Group("/api")
 	{
+		// Contact form endpoint (public)
+		publicAPI.POST("/contact", contactHandler.CreateContact)
+
 		// Public property tour check endpoint for TheNimto backend integration
 		publicAPI.GET("/properties/:propertyId/tour", propertyHandler.GetPropertyTour)
 		publicAPI.GET("/properties/:propertyId/tour-details", propertyHandler.GetPropertyTourDetails)
@@ -167,6 +173,14 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 
 	// Register property routes
 	propertyHandler.RegisterRoutes(api)
+
+	// Admin contact routes (protected)
+	contactAPI := api.Group("/contacts")
+	{
+		contactAPI.GET("", contactHandler.GetContacts)
+		contactAPI.GET("/:id", contactHandler.GetContact)
+		contactAPI.PATCH("/:id/status", contactHandler.UpdateContactStatus)
+	}
 
 	return r
 }
