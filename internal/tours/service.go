@@ -23,8 +23,8 @@ type Service interface {
 	ListAllTours(page, limit int) ([]models.TourWithProperty, int64, error)
 	ListAllPublicTours() ([]models.TourWithProperty, error)
 	ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error)
-	GetFeaturedTour() (*models.TourWithProperty, error)
-	UnfeatureAllTours() error
+	GetFeaturedTour(userID string) (*models.TourWithProperty, error)
+	UnfeatureAllTours(userID string) error
 
 	// Scene management
 	CreateScene(scene *models.Scene) error
@@ -95,14 +95,14 @@ func NewService(virtualDB, mainDB *gorm.DB, cfg config.Config) (Service, error) 
 }
 
 func (s *service) CreateTour(tour *models.Tour) error {
-	// Check if there are any featured tours
-	hasFeaturedTour, err := s.HasFeaturedTour()
+	// Check if user has any existing tours
+	count, err := s.repo.CountUserTours(tour.UserID)
 	if err != nil {
 		return err
 	}
 
-	// If no tour is featured, make this tour featured automatically
-	if !hasFeaturedTour {
+	// If this is the user's first tour, make it featured automatically
+	if count == 0 {
 		tour.IsFeaturedOnHomepage = true
 	}
 
@@ -211,9 +211,9 @@ func (s *service) ListUserTours(userID string, page, limit int) ([]models.Tour, 
 	return s.repo.ListUserTours(userID, page, limit)
 }
 
-func (s *service) GetFeaturedTour() (*models.TourWithProperty, error) {
-	// Get the featured tour directly from database
-	tour, err := s.repo.GetFeaturedTour()
+func (s *service) GetFeaturedTour(userID string) (*models.TourWithProperty, error) {
+	// Get the featured tour directly from database for this user
+	tour, err := s.repo.GetFeaturedTour(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -237,8 +237,8 @@ func (s *service) GetFeaturedTour() (*models.TourWithProperty, error) {
 	return tourWithProp, nil
 }
 
-func (s *service) UnfeatureAllTours() error {
-	return s.repo.UnfeatureAllTours()
+func (s *service) UnfeatureAllTours(userID string) error {
+	return s.repo.UnfeatureAllTours(userID)
 }
 
 func (s *service) CreateScene(scene *models.Scene) error {

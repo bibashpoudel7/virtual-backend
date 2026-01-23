@@ -21,8 +21,8 @@ type Repository interface {
 	ListAllPublicTours() ([]models.Tour, error)
 	ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error)
 	CountUserTours(userID string) (int64, error)
-	UnfeatureAllTours() error
-	GetFeaturedTour() (*models.Tour, error)
+	UnfeatureAllTours(userID string) error
+	GetFeaturedTour(userID string) (*models.Tour, error)
 
 	CreateScene(scene *models.Scene) error
 	GetScene(sceneID string) (*models.Scene, error)
@@ -320,9 +320,9 @@ func (r *tourRepository) ListUserTours(userID string, page, limit int) ([]models
 	return tours, total, nil
 }
 
-func (r *tourRepository) GetFeaturedTour() (*models.Tour, error) {
+func (r *tourRepository) GetFeaturedTour(userID string) (*models.Tour, error) {
 	var tour models.Tour
-	err := r.db.Where("is_featured_on_homepage = ?", true).First(&tour).Error
+	err := r.db.Where("is_featured_on_homepage = ? AND user_id = ?", true, userID).First(&tour).Error
 	if err != nil {
 		return nil, err
 	}
@@ -342,8 +342,8 @@ func (r *tourRepository) GetFeaturedTour() (*models.Tour, error) {
 	return &tour, nil
 }
 
-func (r *tourRepository) UnfeatureAllTours() error {
-	return r.db.Model(&models.Tour{}).Where("is_featured_on_homepage = ?", true).Update("is_featured_on_homepage", false).Error
+func (r *tourRepository) UnfeatureAllTours(userID string) error {
+	return r.db.Model(&models.Tour{}).Where("is_featured_on_homepage = ? AND user_id = ?", true, userID).Update("is_featured_on_homepage", false).Error
 }
 
 func (r *tourRepository) CreateScene(scene *models.Scene) error {

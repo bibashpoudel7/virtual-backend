@@ -67,7 +67,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 		scenes.POST("/:sceneId/update-images", h.UpdateSceneImages)
 
 		// Hotspots
-		scenes.POST("/:sceneId/hotspots", h.CreateHotspot) // step 4
+		scenes.POST("/:sceneId/hotspots", h.CreateHotspot)
 		scenes.GET("/:sceneId/hotspots", h.ListHotspots)
 		scenes.PUT("/:sceneId/hotspots/:hotspotId", h.UpdateHotspot)
 		scenes.DELETE("/:sceneId/hotspots/:hotspotId", h.DeleteHotspot)
@@ -275,9 +275,9 @@ func (h *Handler) GetFeaturedTour(c *gin.Context) {
 	}
 
 	// Get the featured tour
-	featuredTour, err := h.service.GetFeaturedTour()
+	featuredTour, err := h.service.GetFeaturedTour(userID.(string))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No featured tour found"})
+		c.JSON(http.StatusOK, gin.H{"message": "No featured tour found", "tour": nil})
 		return
 	}
 
@@ -574,7 +574,7 @@ func (h *Handler) UpdateTourFeaturedStatus(c *gin.Context) {
 
 	// If featuring this tour, unfeature all other tours first
 	if request.IsFeatured {
-		if err := h.service.UnfeatureAllTours(); err != nil {
+		if err := h.service.UnfeatureAllTours(userID.(string)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unfeature other tours"})
 			return
 		}
