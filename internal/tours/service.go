@@ -20,9 +20,10 @@ type Service interface {
 	UpdateTour(tour *models.Tour) error
 	DeleteTour(id string) error
 	ListTours(propertyID string) ([]models.Tour, error)
-	ListAllTours() ([]models.TourWithProperty, error)
+	ListAllTours(page, limit int) ([]models.TourWithProperty, int64, error)
 	ListAllPublicTours() ([]models.TourWithProperty, error)
-	ListUserTours(userID string) ([]models.Tour, error)
+	ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error)
+	GetFeaturedTour() (*models.TourWithProperty, error)
 	UnfeatureAllTours() error
 
 	// Scene management
@@ -69,6 +70,9 @@ type Service interface {
 	ValidateVendorPropertyAccess(userID string, propertyID string) error
 	GetTourByPropertyID(propertyID string) (*models.Tour, error)
 
+	// Check if any tour is featured
+	HasFeaturedTour() (bool, error)
+
 	// PlayTour methods
 	CreatePlayTour(playTour *models.PlayTour) error
 	GetPlayTour(id string) (*models.PlayTour, error)
@@ -91,6 +95,16 @@ func NewService(virtualDB, mainDB *gorm.DB, cfg config.Config) (Service, error) 
 }
 
 func (s *service) CreateTour(tour *models.Tour) error {
+	// Check if there are any featured tours
+	hasFeaturedTour, err := s.HasFeaturedTour()
+	if err != nil {
+		return err
+	}
+
+	// If no tour is featured, make this tour featured automatically
+	if !hasFeaturedTour {
+		tour.IsFeaturedOnHomepage = true
+	}
 
 	return s.repo.Create(tour)
 }
@@ -127,11 +141,11 @@ func (s *service) DeleteTour(id string) error {
 	return s.repo.DeleteTour(id)
 }
 
-func (s *service) ListAllTours() ([]models.TourWithProperty, error) {
-	// Get all tours from virtual database
-	tours, err := s.repo.ListAllTours()
+func (s *service) ListAllTours(page, limit int) ([]models.TourWithProperty, int64, error) {
+	// Get paginated tours from virtual database
+	tours, total, err := s.repo.ListAllTours(page, limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Convert to TourWithProperty and fetch property names
@@ -155,7 +169,7 @@ func (s *service) ListAllTours() ([]models.TourWithProperty, error) {
 		toursWithProperty = append(toursWithProperty, tourWithProp)
 	}
 
-	return toursWithProperty, nil
+	return toursWithProperty, total, nil
 }
 
 func (s *service) ListAllPublicTours() ([]models.TourWithProperty, error) {
@@ -189,8 +203,38 @@ func (s *service) ListAllPublicTours() ([]models.TourWithProperty, error) {
 	return toursWithProperty, nil
 }
 
-func (s *service) ListUserTours(userID string) ([]models.Tour, error) {
-	return s.repo.ListUserTours(userID)
+func (s *service) ListAllToursWithPagination(page, limit int) ([]models.TourWithProperty, int64, error) {
+	return s.ListAllTours(page, limit)
+}
+
+func (s *service) ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error) {
+	return s.repo.ListUserTours(userID, page, limit)
+}
+
+func (s *service) GetFeaturedTour() (*models.TourWithProperty, error) {
+	// Get the featured tour directly from database
+	tour, err := s.repo.GetFeaturedTour()
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to TourWithProperty and fetch property name if needed
+	tourWithProp := &models.TourWithProperty{Tour: *tour}
+
+	// If tour has a property_id, fetch the property name from main database
+	if tour.PropertyID != nil && *tour.PropertyID != "" {
+		var propertyName string
+		err := s.mainDB.Table("properties").
+			Select("property_name").
+			Where("id = ?", *tour.PropertyID).
+			Scan(&propertyName).Error
+
+		if err == nil && propertyName != "" {
+			tourWithProp.PropertyName = &propertyName
+		}
+	}
+
+	return tourWithProp, nil
 }
 
 func (s *service) UnfeatureAllTours() error {
@@ -302,6 +346,11 @@ func (s *service) ValidateVendorPropertyAccess(userID string, propertyID string)
 // GetTourByPropertyID gets an existing tour for a property
 func (s *service) GetTourByPropertyID(propertyID string) (*models.Tour, error) {
 	return s.repo.GetTourByPropertyID(propertyID)
+}
+
+// HasFeaturedTour checks if any tour is currently featured
+func (s *service) HasFeaturedTour() (bool, error) {
+	return s.repo.HasFeaturedTour()
 }
 
 // Overlay service methods

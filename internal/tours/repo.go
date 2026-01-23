@@ -17,11 +17,12 @@ type Repository interface {
 	UpdateTour(tour *models.Tour) error
 	DeleteTour(id string) error
 	FindByProperty(propertyID string) ([]models.Tour, error)
-	ListAllTours() ([]models.Tour, error)
+	ListAllTours(page, limit int) ([]models.Tour, int64, error)
 	ListAllPublicTours() ([]models.Tour, error)
-	ListUserTours(userID string) ([]models.Tour, error)
+	ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error)
 	CountUserTours(userID string) (int64, error)
 	UnfeatureAllTours() error
+	GetFeaturedTour() (*models.Tour, error)
 
 	CreateScene(scene *models.Scene) error
 	GetScene(sceneID string) (*models.Scene, error)
@@ -44,6 +45,9 @@ type Repository interface {
 	DeleteOverlay(overlayID string) error
 
 	GetTourByPropertyID(propertyID string) (*models.Tour, error)
+
+	// Check if any tour is featured
+	HasFeaturedTour() (bool, error)
 
 	// PlayTour methods
 	CreatePlayTour(playTour *models.PlayTour) error
@@ -211,10 +215,24 @@ func (r *tourRepository) DeleteTour(id string) error {
 	return tx.Commit().Error
 }
 
-func (r *tourRepository) ListAllTours() ([]models.Tour, error) {
+func (r *tourRepository) ListAllTours(page, limit int) ([]models.Tour, int64, error) {
 	var tours []models.Tour
-	if err := r.db.Order("created_at desc").Find(&tours).Error; err != nil {
-		return nil, err
+	var total int64
+
+	// Get total count
+	if err := r.db.Model(&models.Tour{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Calculate offset
+	offset := (page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Get paginated tours
+	if err := r.db.Order("created_at desc").Limit(limit).Offset(offset).Find(&tours).Error; err != nil {
+		return nil, 0, err
 	}
 
 	// For each tour, get the actual scene count and thumbnail URL from the first scene
@@ -231,7 +249,7 @@ func (r *tourRepository) ListAllTours() ([]models.Tour, error) {
 		tours[i].TourScenes = make([]models.TourScene, sceneCount)
 	}
 
-	return tours, nil
+	return tours, total, nil
 }
 
 func (r *tourRepository) ListAllPublicTours() ([]models.Tour, error) {
@@ -265,10 +283,24 @@ func (r *tourRepository) ListAllPublicTours() ([]models.Tour, error) {
 	return tours, nil
 }
 
-func (r *tourRepository) ListUserTours(userID string) ([]models.Tour, error) {
+func (r *tourRepository) ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error) {
 	var tours []models.Tour
-	if err := r.db.Where("user_id = ?", userID).Order("created_at desc").Find(&tours).Error; err != nil {
-		return nil, err
+	var total int64
+
+	// Get total count for user
+	if err := r.db.Model(&models.Tour{}).Where("user_id = ?", userID).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Calculate offset
+	offset := (page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Get paginated tours for user
+	if err := r.db.Where("user_id = ?", userID).Order("created_at desc").Limit(limit).Offset(offset).Find(&tours).Error; err != nil {
+		return nil, 0, err
 	}
 
 	// For each tour, get the actual scene count and thumbnail URL from the first scene
@@ -285,7 +317,29 @@ func (r *tourRepository) ListUserTours(userID string) ([]models.Tour, error) {
 		tours[i].TourScenes = make([]models.TourScene, sceneCount)
 	}
 
-	return tours, nil
+	return tours, total, nil
+}
+
+func (r *tourRepository) GetFeaturedTour() (*models.Tour, error) {
+	var tour models.Tour
+	err := r.db.Where("is_featured_on_homepage = ?", true).First(&tour).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the actual scene count and thumbnail URL from the first scene
+	var sceneCount int64
+	r.db.Table("scenes").Where("tour_id = ?", tour.ID).Count(&sceneCount)
+
+	// Get the first scene's src_original_url for thumbnail
+	var firstScene models.Scene
+	if err := r.db.Where("tour_id = ?", tour.ID).Order("scene_order asc, created_at asc").First(&firstScene).Error; err == nil {
+		tour.ThumbnailURL = firstScene.SrcOriginalURL
+	}
+
+	tour.TourScenes = make([]models.TourScene, sceneCount)
+
+	return &tour, nil
 }
 
 func (r *tourRepository) UnfeatureAllTours() error {
@@ -376,6 +430,16 @@ func (r *tourRepository) GetTourByPropertyID(propertyID string) (*models.Tour, e
 		return nil, err
 	}
 	return &tour, nil
+}
+
+// HasFeaturedTour checks if any tour is currently featured
+func (r *tourRepository) HasFeaturedTour() (bool, error) {
+	var count int64
+	err := r.db.Model(&models.Tour{}).Where("is_featured_on_homepage = ?", true).Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // Overlay repository methods

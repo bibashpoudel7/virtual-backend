@@ -3,6 +3,7 @@ package tours
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 
@@ -24,6 +25,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	toursGroup := r.Group("/tours")
 	{
 		toursGroup.POST("", h.CreateTour)
+		toursGroup.GET("/featured", h.GetFeaturedTour)
 		toursGroup.GET("/:id", h.GetTour)
 		toursGroup.PUT("/:id", h.UpdateTour)
 		toursGroup.DELETE("/:id", h.DeleteTour)
@@ -257,6 +259,38 @@ func (h *Handler) GetTour(c *gin.Context) {
 	c.JSON(http.StatusOK, tour)
 }
 
+func (h *Handler) GetFeaturedTour(c *gin.Context) {
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	if !roleExists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User role not found"})
+		return
+	}
+
+	// Get the featured tour
+	featuredTour, err := h.service.GetFeaturedTour()
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No featured tour found"})
+		return
+	}
+
+	// Check if user is superadmin (role "1") or tour owner
+	roleStr := role.(string)
+	if roleStr != "1" && featuredTour.UserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	c.JSON(http.StatusOK, featuredTour)
+}
+
 func (h *Handler) ListTours(c *gin.Context) {
 	propertyID := c.Param("propertyID")
 	if propertyID == "" {
@@ -374,30 +408,76 @@ func (h *Handler) ListAllTours(c *gin.Context) {
 		return
 	}
 
-	// Get tours with property information
-	toursWithProperty, err := h.service.ListAllTours()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	// Parse pagination parameters
+	page := 1
+	limit := 10 // Backend limit
+
+	if pageStr := c.Query("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 { // Max 50 per page
+			limit = l
+		}
 	}
 
 	// Check if user is superadmin (role "1")
 	roleStr := role.(string)
 	if roleStr == "1" {
-		// Superadmin can see all tours
-		c.JSON(http.StatusOK, toursWithProperty)
+		// Superadmin can see all tours with pagination
+		toursWithProperty, total, err := h.service.ListAllTours(page, limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Calculate pagination metadata
+		totalPages := int(math.Ceil(float64(total) / float64(limit)))
+
+		response := gin.H{
+			"data": toursWithProperty,
+			"pagination": gin.H{
+				"page":        page,
+				"limit":       limit,
+				"total":       total,
+				"total_pages": totalPages,
+			},
+		}
+
+		c.JSON(http.StatusOK, response)
 		return
 	}
 
-	// For non-superadmin users, filter tours to only show user's tours
-	var userTours []models.TourWithProperty
-	for _, tour := range toursWithProperty {
-		if tour.UserID == userID.(string) {
-			userTours = append(userTours, tour)
-		}
+	// For non-superadmin users, get user's tours with pagination
+	userTours, total, err := h.service.ListUserTours(userID.(string), page, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
-	c.JSON(http.StatusOK, userTours)
+	// Convert to TourWithProperty format for consistency
+	var userToursWithProperty []models.TourWithProperty
+	for _, tour := range userTours {
+		userToursWithProperty = append(userToursWithProperty, models.TourWithProperty{Tour: tour})
+	}
+
+	// Calculate pagination metadata
+	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+
+	response := gin.H{
+		"data": userToursWithProperty,
+		"pagination": gin.H{
+			"page":        page,
+			"limit":       limit,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // UpdateTourPublishStatus updates the publication status of a tour (superadmin only)
