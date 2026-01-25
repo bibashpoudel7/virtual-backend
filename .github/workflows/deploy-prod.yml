@@ -1,0 +1,57 @@
+name: Deploy Backend to Production
+
+on:
+  push:
+    branches: [master, main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Remove existing env file
+        run: rm -rf .env
+
+      - name: Create .env file from base64 secret
+        run: |
+          echo -n "${{ secrets.PROD_ENV_FILE }}" | base64 -d > .env
+
+      - name: Login to Docker Hub, Build and Push Docker Image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/virtual-backend:latest .
+          docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/virtual-backend:latest
+          docker image prune -f
+
+  deploy:
+    name: Deploy to Production
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: SSH into the server and pull the Docker image
+        uses: fifsky/ssh-action@master
+        with:
+          command: |
+            # Login to DockerHub to pull images
+            echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+
+            # Pull docker image
+            echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker compose pull backend
+
+            # Run docker-compose
+            echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker compose up -d backend
+
+            # Removing dangling images
+            echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker image prune -f
+
+          host: ${{ secrets.PROD_SERVER_IP }}
+          user: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          options: "-T -o StrictHostKeyChecking=no"
+
+      - name: Cleanup sensitive files
+        run: rm -rf .env

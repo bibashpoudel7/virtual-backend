@@ -34,6 +34,11 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 		LoggingMiddleware(),
 	)
 
+	// Health check endpoint
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "healthy"})
+	})
+
 	// Initialize local payment service
 	paymentSvc := payment.NewLocalPaymentService(dbs.Virtual)
 
