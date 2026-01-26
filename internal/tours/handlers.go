@@ -1068,15 +1068,28 @@ func (h *Handler) GetPublicTour(c *gin.Context) {
 	c.JSON(http.StatusOK, tour)
 }
 
-// GetPublicTours returns all published tours for public viewing (no authentication required)
 func (h *Handler) GetPublicTours(c *gin.Context) {
-	tours, err := h.service.ListAllPublicTours()
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	tours, total, err := h.service.ListAllPublicTours(page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, tours)
+	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+
+	c.JSON(http.StatusOK, gin.H{
+		"datas": tours,
+		"pagination": gin.H{
+			"page":        page,
+			"limit":       limit,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+		"statusCode": http.StatusOK,
+	})
 }
 
 // GetPublicTourScenes returns scenes for a tour for public viewing (no authentication required)

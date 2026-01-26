@@ -21,7 +21,7 @@ type Service interface {
 	DeleteTour(id string) error
 	ListTours(propertyID string) ([]models.Tour, error)
 	ListAllTours(page, limit int) ([]models.TourWithProperty, int64, error)
-	ListAllPublicTours() ([]models.TourWithProperty, error)
+	ListAllPublicTours(page, limit int) ([]models.TourWithProperty, int64, error)
 	ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error)
 	GetFeaturedTour(userID string) (*models.TourWithProperty, error)
 	UnfeatureAllTours(userID string) error
@@ -172,11 +172,16 @@ func (s *service) ListAllTours(page, limit int) ([]models.TourWithProperty, int6
 	return toursWithProperty, total, nil
 }
 
-func (s *service) ListAllPublicTours() ([]models.TourWithProperty, error) {
-	// Get all published tours from virtual database
-	tours, err := s.repo.ListAllPublicTours()
+func (s *service) ListAllPublicTours(page, limit int) ([]models.TourWithProperty, int64, error) {
+	offset := (page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Get published tours from virtual database
+	tours, total, err := s.repo.ListAllPublicTours(offset, limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Convert to TourWithProperty and fetch property names
@@ -200,7 +205,7 @@ func (s *service) ListAllPublicTours() ([]models.TourWithProperty, error) {
 		toursWithProperty = append(toursWithProperty, tourWithProp)
 	}
 
-	return toursWithProperty, nil
+	return toursWithProperty, total, nil
 }
 
 func (s *service) ListAllToursWithPagination(page, limit int) ([]models.TourWithProperty, int64, error) {

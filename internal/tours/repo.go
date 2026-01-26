@@ -18,7 +18,7 @@ type Repository interface {
 	DeleteTour(id string) error
 	FindByProperty(propertyID string) ([]models.Tour, error)
 	ListAllTours(page, limit int) ([]models.Tour, int64, error)
-	ListAllPublicTours() ([]models.Tour, error)
+	ListAllPublicTours(offset, limit int) ([]models.Tour, int64, error)
 	ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error)
 	CountUserTours(userID string) (int64, error)
 	UnfeatureAllTours(userID string) error
@@ -252,10 +252,22 @@ func (r *tourRepository) ListAllTours(page, limit int) ([]models.Tour, int64, er
 	return tours, total, nil
 }
 
-func (r *tourRepository) ListAllPublicTours() ([]models.Tour, error) {
+func (r *tourRepository) ListAllPublicTours(offset, limit int) ([]models.Tour, int64, error) {
 	var tours []models.Tour
-	if err := r.db.Where("is_published = ?", true).Find(&tours).Error; err != nil {
-		return nil, err
+	var total int64
+
+	// Get total count
+	if err := r.db.Model(&models.Tour{}).Where("is_published = ?", true).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	query := r.db.Where("is_published = ?", true).Order("created_at desc")
+	if limit > 0 {
+		query = query.Limit(limit).Offset(offset)
+	}
+
+	if err := query.Find(&tours).Error; err != nil {
+		return nil, 0, err
 	}
 
 	// For each tour, get the actual scene count and thumbnail URL from the first scene
@@ -280,7 +292,7 @@ func (r *tourRepository) ListAllPublicTours() ([]models.Tour, error) {
 		}
 	}
 
-	return tours, nil
+	return tours, total, nil
 }
 
 func (r *tourRepository) ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error) {
