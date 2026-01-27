@@ -115,6 +115,7 @@ func (h *Handler) CreateTour(c *gin.Context) {
 		AutoplayEnabled:    getBool(requestData, "autoplay_enabled", false),
 		Source:             "main_app", // Since this is from the virtual tour system
 		UserID:             userID.(string),
+		Categories:         getStringArray(requestData, "categories"),
 	}
 
 	// Handle property association based on role
@@ -338,11 +339,29 @@ func (h *Handler) UpdateTour(c *gin.Context) {
 	}
 
 	// Update only provided fields
+	if name, exists := updateData["name"]; exists {
+		if str, ok := name.(string); ok {
+			existingTour.Name = str
+		}
+	}
+
 	if audioUrl, exists := updateData["background_audio_url"]; exists {
 		if audioUrl == nil {
 			existingTour.BackgroundAudioURL = nil
 		} else if str, ok := audioUrl.(string); ok {
 			existingTour.BackgroundAudioURL = &str
+		}
+	}
+
+	// Update categories if provided
+	if _, exists := updateData["categories"]; exists {
+		existingTour.Categories = getStringArray(updateData, "categories")
+	}
+
+	// Update is_published if provided
+	if isPublished, exists := updateData["is_published"]; exists {
+		if val, ok := isPublished.(bool); ok {
+			existingTour.IsPublished = val
 		}
 	}
 
@@ -1231,6 +1250,26 @@ func getBool(m map[string]interface{}, key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+func getStringArray(m map[string]interface{}, key string) models.StringArray {
+	if val, exists := m[key]; exists {
+		switch v := val.(type) {
+		case []interface{}:
+			// Handle JSON array
+			result := make(models.StringArray, len(v))
+			for i, item := range v {
+				if str, ok := item.(string); ok {
+					result[i] = str
+				}
+			}
+			return result
+		case []string:
+			// Handle direct string slice
+			return models.StringArray(v)
+		}
+	}
+	return models.StringArray{}
 }
 
 // Tour-specific hotspot handlers (alternative URL pattern for frontend compatibility)

@@ -1,18 +1,84 @@
 package models
 
+import (
+	"database/sql/driver"
+	"fmt"
+	"strings"
+)
+
+// StringArray is a custom type for handling PostgreSQL text[] arrays
+type StringArray []string
+
+// Scan implements the sql.Scanner interface for reading from database
+func (a *StringArray) Scan(value interface{}) error {
+	if value == nil {
+		*a = StringArray{}
+		return nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		// Handle PostgreSQL array format: {item1,item2,item3}
+		if v == "{}" || v == "" {
+			*a = StringArray{}
+			return nil
+		}
+		
+		// Remove braces and split by comma
+		v = strings.Trim(v, "{}")
+		if v == "" {
+			*a = StringArray{}
+			return nil
+		}
+		
+		items := strings.Split(v, ",")
+		result := make(StringArray, len(items))
+		for i, item := range items {
+			// Remove quotes if present
+			result[i] = strings.Trim(item, `"`)
+		}
+		*a = result
+		return nil
+	case []byte:
+		return a.Scan(string(v))
+	default:
+		return fmt.Errorf("cannot scan %T into StringArray", value)
+	}
+}
+
+// Value implements the driver.Valuer interface for writing to database
+func (a StringArray) Value() (driver.Value, error) {
+	if len(a) == 0 {
+		return "{}", nil
+	}
+	
+	// Format as PostgreSQL array: {item1,item2,item3}
+	items := make([]string, len(a))
+	for i, item := range a {
+		// Escape quotes and wrap in quotes if needed
+		if strings.Contains(item, ",") || strings.Contains(item, " ") {
+			items[i] = fmt.Sprintf(`"%s"`, strings.ReplaceAll(item, `"`, `\"`))
+		} else {
+			items[i] = item
+		}
+	}
+	return fmt.Sprintf("{%s}", strings.Join(items, ",")), nil
+}
+
 // Tour represents a full virtual tour
 type Tour struct {
-	ID                   string  `json:"id" gorm:"primaryKey;size:50;column:id"`
-	Name                 string  `json:"name" gorm:"column:name"`
-	UserID               string  `json:"user_id" gorm:"column:user_id;size:50;index"`     // Owner of the tour
-	PropertyID           *string `json:"property_id,omitempty" gorm:"column:property_id"` // nullable - only if from main frontend
-	BackgroundAudioURL   *string `json:"background_audio_url,omitempty" gorm:"column:background_audio_url"`
-	IsPublished          bool    `json:"is_published" gorm:"column:is_published"`
-	IsFeaturedOnHomepage bool    `json:"is_featured_on_homepage" gorm:"column:is_featured_on_homepage;default:false"`
-	AutoplayEnabled      bool    `json:"autoplay_enabled" gorm:"column:autoplay_enabled"`  // nullable
-	IsPaid               bool    `json:"is_paid" gorm:"column:is_paid;default:false"`      // Whether payment was made
-	PaymentID            *string `json:"payment_id,omitempty" gorm:"column:payment_id"`    // Reference to payment
-	Source               string  `json:"source" gorm:"column:source;default:'standalone'"` // 'main_app' or 'standalone'
+	ID                   string   `json:"id" gorm:"primaryKey;size:50;column:id"`
+	Name                 string   `json:"name" gorm:"column:name"`
+	UserID               string   `json:"user_id" gorm:"column:user_id;size:50;index"`     // Owner of the tour
+	PropertyID           *string  `json:"property_id,omitempty" gorm:"column:property_id"` // nullable - only if from main frontend
+	BackgroundAudioURL   *string  `json:"background_audio_url,omitempty" gorm:"column:background_audio_url"`
+	IsPublished          bool     `json:"is_published" gorm:"column:is_published"`
+	IsFeaturedOnHomepage bool     `json:"is_featured_on_homepage" gorm:"column:is_featured_on_homepage;default:false"`
+	AutoplayEnabled      bool     `json:"autoplay_enabled" gorm:"column:autoplay_enabled"`              // nullable
+	IsPaid               bool     `json:"is_paid" gorm:"column:is_paid;default:false"`                  // Whether payment was made
+	PaymentID            *string  `json:"payment_id,omitempty" gorm:"column:payment_id"`                // Reference to payment
+	Source               string   `json:"source" gorm:"column:source;default:'standalone'"`             // 'main_app' or 'standalone'
+	Categories           StringArray `json:"categories" gorm:"column:categories;type:text[];default:'{}'"` // e.g. ["education", "hotel"]
 
 	DefaultFOV        float64 `json:"default_fov" gorm:"default:75;column:default_fov"`
 	DefaultYawSpeed   float64 `json:"default_yaw_speed" gorm:"default:0.01;column:default_yaw_speed"`
