@@ -23,14 +23,14 @@ func (a *StringArray) Scan(value interface{}) error {
 			*a = StringArray{}
 			return nil
 		}
-		
+
 		// Remove braces and split by comma
 		v = strings.Trim(v, "{}")
 		if v == "" {
 			*a = StringArray{}
 			return nil
 		}
-		
+
 		items := strings.Split(v, ",")
 		result := make(StringArray, len(items))
 		for i, item := range items {
@@ -51,7 +51,7 @@ func (a StringArray) Value() (driver.Value, error) {
 	if len(a) == 0 {
 		return "{}", nil
 	}
-	
+
 	// Format as PostgreSQL array: {item1,item2,item3}
 	items := make([]string, len(a))
 	for i, item := range a {
@@ -67,17 +67,17 @@ func (a StringArray) Value() (driver.Value, error) {
 
 // Tour represents a full virtual tour
 type Tour struct {
-	ID                   string   `json:"id" gorm:"primaryKey;size:50;column:id"`
-	Name                 string   `json:"name" gorm:"column:name"`
-	UserID               string   `json:"user_id" gorm:"column:user_id;size:50;index"`     // Owner of the tour
-	PropertyID           *string  `json:"property_id,omitempty" gorm:"column:property_id"` // nullable - only if from main frontend
-	BackgroundAudioURL   *string  `json:"background_audio_url,omitempty" gorm:"column:background_audio_url"`
-	IsPublished          bool     `json:"is_published" gorm:"column:is_published"`
-	IsFeaturedOnHomepage bool     `json:"is_featured_on_homepage" gorm:"column:is_featured_on_homepage;default:false"`
-	AutoplayEnabled      bool     `json:"autoplay_enabled" gorm:"column:autoplay_enabled"`              // nullable
-	IsPaid               bool     `json:"is_paid" gorm:"column:is_paid;default:false"`                  // Whether payment was made
-	PaymentID            *string  `json:"payment_id,omitempty" gorm:"column:payment_id"`                // Reference to payment
-	Source               string   `json:"source" gorm:"column:source;default:'standalone'"`             // 'main_app' or 'standalone'
+	ID                   string      `json:"id" gorm:"primaryKey;size:50;column:id"`
+	Name                 string      `json:"name" gorm:"column:name"`
+	UserID               string      `json:"user_id" gorm:"column:user_id;size:50;index"`     // Owner of the tour
+	PropertyID           *string     `json:"property_id,omitempty" gorm:"column:property_id"` // nullable - only if from main frontend
+	BackgroundAudioURL   *string     `json:"background_audio_url,omitempty" gorm:"column:background_audio_url"`
+	IsPublished          bool        `json:"is_published" gorm:"column:is_published"`
+	IsFeaturedOnHomepage bool        `json:"is_featured_on_homepage" gorm:"column:is_featured_on_homepage;default:false"`
+	AutoplayEnabled      bool        `json:"autoplay_enabled" gorm:"column:autoplay_enabled"`              // nullable
+	IsPaid               bool        `json:"is_paid" gorm:"column:is_paid;default:false"`                  // Whether payment was made
+	PaymentID            *string     `json:"payment_id,omitempty" gorm:"column:payment_id"`                // Reference to payment
+	Source               string      `json:"source" gorm:"column:source;default:'standalone'"`             // 'main_app' or 'standalone'
 	Categories           StringArray `json:"categories" gorm:"column:categories;type:text[];default:'{}'"` // e.g. ["education", "hotel"]
 
 	DefaultFOV        float64 `json:"default_fov" gorm:"default:75;column:default_fov"`
@@ -91,7 +91,10 @@ type Tour struct {
 	AutoPauseOnInteraction bool   `json:"auto_pause_on_interaction" gorm:"column:auto_pause_on_interaction;default:true"`
 	AutoRestartDelay       int    `json:"auto_restart_delay" gorm:"column:auto_restart_delay;default:30000"` // milliseconds to wait before restarting after interaction
 
-	// Thumbnail URL from first scene (not stored in DB, populated at runtime)
+	// Custom cover image URL
+	CoverImageURL *string `json:"cover_image_url,omitempty" gorm:"column:cover_image_url"`
+
+	// Thumbnail URL from cover image or first scene (not stored in DB, populated at runtime)
 	ThumbnailURL *string `json:"thumbnail_url,omitempty" gorm:"-"`
 
 	TourScenes []TourScene `json:"tour_scenes" gorm:"foreignKey:TourID"`

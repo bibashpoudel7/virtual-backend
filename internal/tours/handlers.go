@@ -365,6 +365,15 @@ func (h *Handler) UpdateTour(c *gin.Context) {
 		}
 	}
 
+	// Update cover_image_url if provided
+	if coverImgUrl, exists := updateData["cover_image_url"]; exists {
+		if coverImgUrl == nil {
+			existingTour.CoverImageURL = nil
+		} else if str, ok := coverImgUrl.(string); ok {
+			existingTour.CoverImageURL = &str
+		}
+	}
+
 	if err := h.service.UpdateTour(existingTour); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
