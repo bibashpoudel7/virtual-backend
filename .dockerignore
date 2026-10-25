@@ -1,0 +1,12 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+venv
+scripts
+tmp
+bin
+*.log
+.DS_Store
+*.md

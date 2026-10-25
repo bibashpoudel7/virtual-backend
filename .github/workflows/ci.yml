@@ -1,0 +1,48 @@
+name: Backend checks
+
+on:
+  pull_request:
+    branches: [main, dev]
+  # Reused by the deploy workflows so nothing deploys without passing checks
+  workflow_call:
+
+jobs:
+  test:
+    name: Vet, test and build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: virtual_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Run tests
+        env:
+          # Enables the account integration tests (sign-up, OTP, login)
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/virtual_test?sslmode=disable
+        run: go test ./... -count=1
+
+      - name: Build
+        run: go build ./...

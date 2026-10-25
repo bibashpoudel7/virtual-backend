@@ -3,30 +3,36 @@
 package http
 
 import (
+	"backend/internal/accounts"
 	"backend/internal/auth"
 	"backend/internal/config"
 	"backend/internal/contact"
 	"backend/internal/db"
+	"backend/internal/email"
+	"backend/internal/embed"
 	"backend/internal/payment"
-	"backend/internal/properties"
+	"backend/internal/floorplan"
 	"backend/internal/tours"
-	"backend/internal/users"
 	"log"
 	"os"
-	"strings"
 
-	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 )
 
 func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 	r := gin.Default()
 
-	// Get JWT secret from environment
+	// Secret for signing this service's own login tokens. No fallback: a guessable default would let
+	// anyone forge tokens. Use a value NOT shared with any other system.
 	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "8db1b8d5158b97eb7b54bf002765323c04a5c1be86d34b44548637f6e7a358e160a078390957e5481b069761e8b8c1dcd0489cb0fa2ab302071d>"
+	if len(jwtSecret) < 32 {
+		log.Fatal("JWT_SECRET must be set to a random value of at least 32 characters")
 	}
+
+	// Liveness check for Docker/compose healthchecks
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
 
 	// Add global middlewares
 	r.Use(
@@ -38,62 +44,22 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 	paymentSvc := payment.NewLocalPaymentService(dbs.Virtual)
 
 	// Initialize services
-	userSvc := users.NewService(dbs.Main)
-	tourSvc, err := tours.NewService(dbs.Virtual, dbs.Main, cfg)
+	tourSvc, err := tours.NewService(dbs.Virtual, cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize tour service: %v", err)
 	}
 
-	propertySvc := properties.NewService(dbs.Virtual, dbs.Main)
 	contactSvc := contact.NewService(dbs.Virtual)
 
 	tourHandler := tours.NewHandler(tourSvc)
-	propertyHandler := properties.NewHandler(propertySvc)
 	contactHandler := contact.NewHandler(contactSvc)
-
-	// Test endpoint to debug JWT tokens
-	r.POST("/api/debug/token", func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(400, gin.H{"error": "No authorization header"})
-			return
-		}
-
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-
-		// Try to decode without verification first to see the structure
-		token, _, err := new(jwt.Parser).ParseUnverified(tokenString, &auth.UserClaims{})
-		if err != nil {
-			c.JSON(400, gin.H{"error": "Failed to parse token", "details": err.Error()})
-			return
-		}
-
-		if claims, ok := token.Claims.(*auth.UserClaims); ok {
-			c.JSON(200, gin.H{
-				"header":    token.Header,
-				"claims":    claims,
-				"raw_token": tokenString[:50] + "...", // First 50 chars for debugging
-			})
-		} else {
-			c.JSON(400, gin.H{"error": "Invalid claims format"})
-		}
-	})
-
-	// Auth validation endpoint
-	r.POST("/api/auth/validate", auth.OptionalAuthMiddleware(jwtSecret, userSvc), func(c *gin.Context) {
-		if user, exists := auth.GetUserFromContext(c); exists {
-			c.JSON(200, gin.H{
-				"valid": true,
-				"user":  user,
-			})
-		} else {
-			c.JSON(401, gin.H{"valid": false})
-		}
-	})
+	embedHandler := embed.NewHandler(dbs.Virtual)
+	accountHandler := accounts.NewHandler(dbs.Virtual, email.NewService(), jwtSecret)
+	requireAuth := auth.AuthMiddleware(jwtSecret, dbs.Virtual)
 
 	// Payment endpoints - protected
 	paymentAPI := r.Group("/api/payment")
-	paymentAPI.Use(auth.AuthMiddleware(jwtSecret, userSvc))
+	paymentAPI.Use(requireAuth)
 	{
 		paymentAPI.GET("/check-limit", func(c *gin.Context) {
 			userID := c.GetString("user_id")
@@ -149,9 +115,8 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 		// Contact form endpoint (public)
 		publicAPI.POST("/contact", contactHandler.CreateContact)
 
-		// Public property tour check endpoint for TheNimto backend integration
-		publicAPI.GET("/properties/:propertyId/tour", propertyHandler.GetPropertyTour)
-		publicAPI.GET("/properties/:propertyId/tour-details", propertyHandler.GetPropertyTourDetails)
+		// Sign-up, email verification (OTP), login and password reset
+		accountHandler.RegisterRoutes(publicAPI, requireAuth)
 
 		// Public tour viewing endpoints for end users
 		publicAPI.GET("/tours/public", tourHandler.GetPublicTours)
@@ -162,20 +127,28 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 		publicAPI.GET("/scenes/:sceneId/hotspots/public", tourHandler.GetPublicSceneHotspots)
 		publicAPI.GET("/scenes/:sceneId/overlays/public", tourHandler.GetPublicSceneOverlays)
 		publicAPI.GET("/tours/:id/play-tours/public", tourHandler.GetPublicPlayTours)
+
+		// Embed key lookup used by the frontend /embed/<key> route
+		embedHandler.RegisterPublicRoutes(publicAPI)
 	}
 
 	// API routes - protected by auth
 	api := r.Group("/api")
-	api.Use(auth.AuthMiddleware(jwtSecret, userSvc))
+	api.Use(requireAuth)
 
 	// Register tour routes
 	tourHandler.RegisterRoutes(api)
 
-	// Register property routes
-	propertyHandler.RegisterRoutes(api)
+	// Floor plan reading and phone building scans for the dollhouse builder (tour owner or admin)
+	floorplanHandler := floorplan.NewHandler(tourSvc, cfg.AnthropicAPIKey)
+	floorplanHandler.RegisterRoutes(api)
+	floorplanHandler.RegisterScanRoutes(api)
 
-	// Admin contact routes (protected)
-	contactAPI := api.Group("/contacts")
+	// Embed key management (tour owner or superadmin)
+	embedHandler.RegisterRoutes(api)
+
+	// Contact form submissions: admins only
+	contactAPI := api.Group("/contacts", auth.RequireAdmin())
 	{
 		contactAPI.GET("", contactHandler.GetContacts)
 		contactAPI.GET("/:id", contactHandler.GetContact)

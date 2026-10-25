@@ -2,6 +2,7 @@ package models
 
 import (
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -93,6 +94,13 @@ type Tour struct {
 
 	// Custom cover image URL
 	CoverImageURL *string `json:"cover_image_url,omitempty" gorm:"column:cover_image_url"`
+
+	// Optional 3D model (.glb) shown as an intro screen before the 360° tour starts
+	IntroModelURL *string `json:"intro_model_url,omitempty" gorm:"column:intro_model_url"`
+	// Clickable room labels on the intro model: [{"sceneId","label","position":[x,y,z]}]
+	IntroModelRooms json.RawMessage `json:"intro_model_rooms,omitempty" gorm:"type:jsonb;column:intro_model_rooms"`
+	// Rooms measured with the Android capture app: {"version":1,"rooms":[...]} (see floorplan.BuildingScan)
+	BuildingScan json.RawMessage `json:"building_scan,omitempty" gorm:"type:jsonb;column:building_scan"`
 
 	// Thumbnail URL from cover image or first scene (not stored in DB, populated at runtime)
 	ThumbnailURL *string `json:"thumbnail_url,omitempty" gorm:"-"`
@@ -205,6 +213,11 @@ type PlayTourScene struct {
 	EndPitch float64 `json:"end_pitch" gorm:"column:end_pitch"`
 	EndFOV   float64 `json:"end_fov" gorm:"column:end_fov"`
 
+	// Optional points the camera curves through between start and end:
+	// [{"yaw","pitch","fov","move","hold"}, ...] where move/hold are optional milliseconds
+	Waypoints json.RawMessage `json:"waypoints,omitempty" gorm:"type:jsonb;column:waypoints"`
+
+	StartHold           int     `json:"start_hold" gorm:"column:start_hold;default:0"`           // milliseconds to stay on the start view before moving
 	MoveDuration        int     `json:"move_duration" gorm:"column:move_duration;default:5000"` // milliseconds
 	WaitDuration        int     `json:"wait_duration" gorm:"column:wait_duration;default:2000"` // milliseconds
 	TransitionDirection string  `json:"transition_direction" gorm:"column:transition_direction;default:forward"`

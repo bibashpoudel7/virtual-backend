@@ -15,11 +15,10 @@ import (
 )
 
 type Databases struct {
-	Virtual *gorm.DB // For tours, scenes, hotspots
-	Main    *gorm.DB // For users, companies, properties (read-only)
+	Virtual *gorm.DB // Users, tours, scenes, hotspots
 }
 
-// MustConnect establishes connections to both databases
+// MustConnect establishes the database connection and runs migrations
 func MustConnect(cfg config.Config) *Databases {
 	// Configure GORM with additional settings
 	gormConfig := &gorm.Config{
@@ -34,18 +33,14 @@ func MustConnect(cfg config.Config) *Databases {
 	// Connect to virtual database (primary)
 	virtualDB := connectWithRetry(cfg.PostgresDSN, gormConfig, "virtual")
 	
-	// Connect to main (nimto) database (for reading users, companies, properties)
-	mainDB := connectWithRetry(cfg.MainPostgresDSN, gormConfig, "nimto")
-
 	// Run migrations only on virtual database
 	if err := migrate(virtualDB); err != nil {
 		log.Fatalf("virtual database migration failed: %v", err)
 	}
 
-	log.Println("Both databases connected successfully")
+	log.Println("Database connected successfully")
 	return &Databases{
 		Virtual: virtualDB,
-		Main:    mainDB,
 	}
 }
 
@@ -103,6 +98,9 @@ func migrate(db *gorm.DB) error {
 		&models.Overlay{},
 		&models.PlayTour{},
 		&models.PlayTourScene{},
+		&models.EmbedToken{},
+		&models.User{},
+		&models.EmailOTP{},
 	)
 }
 
@@ -110,9 +108,6 @@ func migrate(db *gorm.DB) error {
 func CloseDBs(dbs *Databases) {
 	if dbs.Virtual != nil {
 		closeDB(dbs.Virtual, "virtual")
-	}
-	if dbs.Main != nil {
-		closeDB(dbs.Main, "nimto")
 	}
 }
 

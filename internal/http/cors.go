@@ -21,7 +21,6 @@ func ConfigureCORS(allowedOrigins []string) gin.HandlerFunc {
 			"X-Property-ID",
 			"X-Source",
 			"X-User-ID",
-			"X-User-Role",
 		},
 		ExposeHeaders: []string{
 			"Content-Length",

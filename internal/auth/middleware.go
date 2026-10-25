@@ -1,256 +1,146 @@
+// Package auth issues and verifies this service's own login tokens.
 package auth
 
 import (
-	"context"
-	"fmt"
+	"errors"
 	"net/http"
 	"strings"
+	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	"backend/internal/models"
+
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"gorm.io/gorm"
 )
-
-// UserService interface for querying user data
-type UserService interface {
-	GetUserRole(userID string) (string, error)
-}
-
-type UserClaims struct {
-	UserID     string   `json:"user_id"`
-	Sub        string   `json:"sub"` // NestJS often uses 'sub' for user ID
-	ID         int      `json:"id"`  // Alternative ID field
-	Email      string   `json:"email"`
-	Username   string   `json:"username"` // NestJS might use username
-	PropertyID *int64   `json:"property_id,omitempty"`
-	Role       string   `json:"role"`
-	Roles      interface{} `json:"roles"` // Can be number, string, or array
-	jwt.StandardClaims
-}
-
-type ContextKey string
 
 const (
-	UserContextKey ContextKey = "user"
-	JWTSecretKey   string     = "JWT_SECRET" // Should be in env
+	RoleAdmin = models.RoleAdmin
+	RoleUser  = models.RoleUser
+
+	tokenIssuer   = "virtual-tours"
+	tokenLifetime = 7 * 24 * time.Hour
 )
 
-// AuthMiddleware validates JWT tokens from the main NestJS backend
-func AuthMiddleware(jwtSecret string, userService UserService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-
-		println(authHeader)
-		println(jwtSecret)
-
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
-			c.Abort()
-			return
-		}
-
-		tokenString := strings.Replace(authHeader, "Bearer ", "", 1)
-
-		token, err := jwt.ParseWithClaims(tokenString, &UserClaims{}, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return []byte(jwtSecret), nil
-		})
-
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid tokens"})
-			c.Abort()
-			return
-		}
-
-		if claims, ok := token.Claims.(*UserClaims); ok && token.Valid {
-			// Normalize user ID from different claim formats
-			userID := claims.UserID
-			if userID == "" && claims.Sub != "" {
-				userID = claims.Sub
-			}
-			if userID == "" && claims.ID != 0 {
-				userID = fmt.Sprintf("%d", claims.ID)
-			}
-
-			// For TheNimto backend, roles are not in JWT token
-			// Try to get role from custom header first, then from JWT claims
-			role := c.GetHeader("X-User-Role")
-			if role == "" {
-				role = claims.Role
-				if role == "" {
-					// Handle roles field which can be number, string, or array
-					switch v := claims.Roles.(type) {
-					case float64:
-						role = fmt.Sprintf("%.0f", v)
-					case int:
-						role = fmt.Sprintf("%d", v)
-					case string:
-						role = v
-					case []interface{}:
-						if len(v) > 0 {
-							if str, ok := v[0].(string); ok {
-								role = str
-							} else if num, ok := v[0].(float64); ok {
-								role = fmt.Sprintf("%.0f", num)
-							}
-						}
-					case []string:
-						if len(v) > 0 {
-							role = v[0]
-						}
-					}
-				}
-			}
-			
-			// If role is still empty, look it up from the database
-			if role == "" && userID != "" {
-				// Query the main database for user role
-				dbRole, err := userService.GetUserRole(userID)
-				if err != nil {
-					println("Failed to get user role from database:", err.Error())
-					// Continue without role - let the handlers decide access
-				} else {
-					role = dbRole
-					println("Retrieved role from database for user", userID+":", role)
-				}
-			}
-			
-			// Store user info in context
-			c.Set("user", claims)
-			c.Set("user_id", userID)
-			c.Set("property_id", claims.PropertyID)
-			c.Set("role", role)
-			c.Set("email", claims.Email)
-			if claims.Username != "" {
-				c.Set("username", claims.Username)
-			}
-			c.Next()
-		} else {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
-			c.Abort()
-			return
-		}
-	}
+// Claims carried by our login tokens. The role is NOT trusted from the token;
+// it is re-read from the database on every request.
+type Claims struct {
+	UserID string `json:"uid"`
+	jwt.RegisteredClaims
 }
 
-// OptionalAuthMiddleware allows both authenticated and unauthenticated requests
-func OptionalAuthMiddleware(jwtSecret string, userService UserService) gin.HandlerFunc {
+// IssueToken signs a login token for the user
+func IssueToken(jwtSecret string, user *models.User) (string, error) {
+	now := time.Now()
+	claims := Claims{
+		UserID: user.ID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    tokenIssuer,
+			Subject:   user.ID,
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(tokenLifetime)),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(jwtSecret))
+}
+
+// parseToken verifies signature, algorithm, issuer and expiry
+func parseToken(jwtSecret, tokenString string) (*Claims, error) {
+	claims := &Claims{}
+	_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(jwtSecret), nil
+	},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithIssuer(tokenIssuer),
+		jwt.WithExpirationRequired(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if claims.UserID == "" {
+		return nil, errors.New("token has no user")
+	}
+	return claims, nil
+}
+
+func bearerToken(c *gin.Context) string {
+	header := c.GetHeader("Authorization")
+	if len(header) > 7 && strings.EqualFold(header[:7], "Bearer ") {
+		return strings.TrimSpace(header[7:])
+	}
+	return ""
+}
+
+// authenticate resolves the request's user, or returns nil
+func authenticate(c *gin.Context, jwtSecret string, db *gorm.DB) *models.User {
+	tokenString := bearerToken(c)
+	if tokenString == "" {
+		return nil
+	}
+	claims, err := parseToken(jwtSecret, tokenString)
+	if err != nil {
+		return nil
+	}
+	var user models.User
+	if err := db.First(&user, "id = ?", claims.UserID).Error; err != nil || !user.IsVerified() {
+		return nil
+	}
+	return &user
+}
+
+func setUser(c *gin.Context, user *models.User) {
+	c.Set("user", user)
+	c.Set("user_id", user.ID)
+	c.Set("role", user.Role)
+	c.Set("email", user.Email)
+}
+
+// AuthMiddleware requires a valid login token for a verified account
+func AuthMiddleware(jwtSecret string, db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.Next()
+		user := authenticate(c, jwtSecret, db)
+		if user == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Please sign in again"})
 			return
 		}
-
-		tokenString := strings.Replace(authHeader, "Bearer ", "", 1)
-
-		token, err := jwt.ParseWithClaims(tokenString, &UserClaims{}, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return []byte(jwtSecret), nil
-		})
-
-		if err == nil && token.Valid {
-			if claims, ok := token.Claims.(*UserClaims); ok {
-				// Normalize user ID from different claim formats
-				userID := claims.UserID
-				if userID == "" && claims.Sub != "" {
-					userID = claims.Sub
-				}
-				if userID == "" && claims.ID != 0 {
-					userID = fmt.Sprintf("%d", claims.ID)
-				}
-
-				// Normalize role from different formats
-				role := claims.Role
-				if role == "" {
-					// Handle roles field which can be number, string, or array
-					switch v := claims.Roles.(type) {
-					case float64:
-						role = fmt.Sprintf("%.0f", v)
-					case int:
-						role = fmt.Sprintf("%d", v)
-					case string:
-						role = v
-					case []interface{}:
-						if len(v) > 0 {
-							if str, ok := v[0].(string); ok {
-								role = str
-							} else if num, ok := v[0].(float64); ok {
-								role = fmt.Sprintf("%.0f", num)
-							}
-						}
-					case []string:
-						if len(v) > 0 {
-							role = v[0]
-						}
-					}
-				}
-
-				// If role is still empty, look it up from the database
-				if role == "" && userID != "" {
-					// Query the main database for user role
-					dbRole, err := userService.GetUserRole(userID)
-					if err != nil {
-						println("Failed to get user role from database:", err.Error())
-						// Continue without role - let the handlers decide access
-					} else {
-						role = dbRole
-						println("Retrieved role from database for user", userID+":", role)
-					}
-				}
-
-				c.Set("user", claims)
-				c.Set("user_id", userID)
-				c.Set("property_id", claims.PropertyID)
-				c.Set("role", role)
-				c.Set("email", claims.Email)
-				if claims.Username != "" {
-					c.Set("username", claims.Username)
-				}
-			}
-		}
-
+		setUser(c, user)
 		c.Next()
 	}
 }
 
-// GetUserFromContext extracts user claims from gin context
-func GetUserFromContext(c *gin.Context) (*UserClaims, bool) {
-	user, exists := c.Get("user")
-	if !exists {
+// OptionalAuthMiddleware sets the user when a valid token is present, but never blocks
+func OptionalAuthMiddleware(jwtSecret string, db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if user := authenticate(c, jwtSecret, db); user != nil {
+			setUser(c, user)
+		}
+		c.Next()
+	}
+}
+
+// RequireAdmin must run after AuthMiddleware
+func RequireAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !IsAdmin(c) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			return
+		}
+		c.Next()
+	}
+}
+
+// IsAdmin reports whether the authenticated user is an admin
+func IsAdmin(c *gin.Context) bool {
+	return c.GetString("role") == RoleAdmin
+}
+
+// CurrentUser returns the authenticated user set by the middleware
+func CurrentUser(c *gin.Context) (*models.User, bool) {
+	value, ok := c.Get("user")
+	if !ok {
 		return nil, false
 	}
-
-	claims, ok := user.(*UserClaims)
-	return claims, ok
-}
-
-// ValidateMainBackendToken validates token from main NestJS backend
-func ValidateMainBackendToken(token string, mainBackendURL string, jwtSecret string) (*UserClaims, error) {
-	// In production, this would validate against the main backend
-	// For now, we'll parse the JWT directly
-	claims := &UserClaims{}
-
-	parsedToken, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
-		// Get secret from environment or config
-		return []byte(jwtSecret), nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !parsedToken.Valid {
-		return nil, fmt.Errorf("invalid token")
-	}
-
-	return claims, nil
-}
-
-// GetUserContext creates a context with user information
-func GetUserContext(ctx context.Context, userClaims *UserClaims) context.Context {
-	return context.WithValue(ctx, UserContextKey, userClaims)
+	user, ok := value.(*models.User)
+	return user, ok
 }

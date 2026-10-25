@@ -27,6 +27,7 @@ type Repository interface {
 	CreateScene(scene *models.Scene) error
 	GetScene(sceneID string) (*models.Scene, error)
 	UpdateScene(scene *models.Scene) error
+	UpdateSceneView(sceneID string, yaw, pitch, fov float64) error
 	DeleteScene(sceneID string) error
 	ListScenes(tourID string, offset, limit int) ([]models.Scene, error)
 	CountScenes(tourID string) (int64, error)
@@ -390,6 +391,15 @@ func (r *tourRepository) CreateScene(scene *models.Scene) error {
 
 func (r *tourRepository) UpdateScene(scene *models.Scene) error {
 	return r.db.Save(scene).Error
+}
+
+// UpdateSceneView updates only the starting camera angle, leaving other scene columns untouched
+func (r *tourRepository) UpdateSceneView(sceneID string, yaw, pitch, fov float64) error {
+	return r.db.Model(&models.Scene{}).Where("id = ?", sceneID).Updates(map[string]any{
+		"yaw":   yaw,
+		"pitch": pitch,
+		"fov":   fov,
+	}).Error
 }
 
 func (r *tourRepository) DeleteScene(sceneID string) error {

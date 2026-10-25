@@ -19,7 +19,6 @@ type Service interface {
 	GetTour(id string) (*models.Tour, error)
 	UpdateTour(tour *models.Tour) error
 	DeleteTour(id string) error
-	ListTours(propertyID string) ([]models.Tour, error)
 	ListAllTours(page, limit int) ([]models.TourWithProperty, int64, error)
 	ListAllPublicTours(page, limit int) ([]models.TourWithProperty, int64, error)
 	ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error)
@@ -30,6 +29,7 @@ type Service interface {
 	CreateScene(scene *models.Scene) error
 	GetScene(sceneID string) (*models.Scene, error)
 	UpdateScene(scene *models.Scene) error
+	UpdateSceneView(sceneID string, yaw, pitch, fov float64) error
 	DeleteScene(sceneID string) error
 	ListScenes(tourID string, page, limit int) ([]models.Scene, int64, error)
 
@@ -66,10 +66,6 @@ type Service interface {
 	CheckIfPaymentRequired(userID string) (bool, error)
 	CreatePaymentSession(tour *models.Tour) (*models.PaymentSession, error)
 
-	// Property validation
-	ValidateVendorPropertyAccess(userID string, propertyID string) error
-	GetTourByPropertyID(propertyID string) (*models.Tour, error)
-
 	// Check if any tour is featured
 	HasFeaturedTour() (bool, error)
 
@@ -82,16 +78,11 @@ type Service interface {
 }
 
 type service struct {
-	repo   Repository
-	mainDB *gorm.DB // For property validation queries
+	repo Repository
 }
 
-func NewService(virtualDB, mainDB *gorm.DB, cfg config.Config) (Service, error) {
-	repo := NewRepository(virtualDB)
-	return &service{
-		repo:   repo,
-		mainDB: mainDB,
-	}, nil
+func NewService(virtualDB *gorm.DB, cfg config.Config) (Service, error) {
+	return &service{repo: NewRepository(virtualDB)}, nil
 }
 
 func (s *service) CreateTour(tour *models.Tour) error {
@@ -111,10 +102,6 @@ func (s *service) CreateTour(tour *models.Tour) error {
 
 func (s *service) GetTour(id string) (*models.Tour, error) {
 	return s.repo.FindByID(id)
-}
-
-func (s *service) ListTours(propertyID string) ([]models.Tour, error) {
-	return s.repo.FindByProperty(propertyID)
 }
 
 func (s *service) CreateHotspot(sceneID, tourID, targetSceneID, kind string, yaw, pitch float64, payload map[string]any) (*models.Hotspot, error) {
@@ -148,23 +135,11 @@ func (s *service) ListAllTours(page, limit int) ([]models.TourWithProperty, int6
 		return nil, 0, err
 	}
 
-	// Convert to TourWithProperty and fetch property names
+	// Convert to TourWithProperty (property names are no longer looked up)
 	var toursWithProperty []models.TourWithProperty
 	for _, tour := range tours {
 		tourWithProp := models.TourWithProperty{Tour: tour}
 
-		// If tour has a property_id, fetch the property name from main database
-		if tour.PropertyID != nil && *tour.PropertyID != "" {
-			var propertyName string
-			err := s.mainDB.Table("properties").
-				Select("property_name").
-				Where("id = ?", *tour.PropertyID).
-				Scan(&propertyName).Error
-
-			if err == nil && propertyName != "" {
-				tourWithProp.PropertyName = &propertyName
-			}
-		}
 
 		toursWithProperty = append(toursWithProperty, tourWithProp)
 	}
@@ -184,23 +159,11 @@ func (s *service) ListAllPublicTours(page, limit int) ([]models.TourWithProperty
 		return nil, 0, err
 	}
 
-	// Convert to TourWithProperty and fetch property names
+	// Convert to TourWithProperty (property names are no longer looked up)
 	var toursWithProperty []models.TourWithProperty
 	for _, tour := range tours {
 		tourWithProp := models.TourWithProperty{Tour: tour}
 
-		// If tour has a property_id, fetch the property name from main database
-		if tour.PropertyID != nil && *tour.PropertyID != "" {
-			var propertyName string
-			err := s.mainDB.Table("properties").
-				Select("property_name").
-				Where("id = ?", *tour.PropertyID).
-				Scan(&propertyName).Error
-
-			if err == nil && propertyName != "" {
-				tourWithProp.PropertyName = &propertyName
-			}
-		}
 
 		toursWithProperty = append(toursWithProperty, tourWithProp)
 	}
@@ -223,21 +186,9 @@ func (s *service) GetFeaturedTour(userID string) (*models.TourWithProperty, erro
 		return nil, err
 	}
 
-	// Convert to TourWithProperty and fetch property name if needed
+	// Convert to TourWithProperty (property names are no longer looked up)
 	tourWithProp := &models.TourWithProperty{Tour: *tour}
 
-	// If tour has a property_id, fetch the property name from main database
-	if tour.PropertyID != nil && *tour.PropertyID != "" {
-		var propertyName string
-		err := s.mainDB.Table("properties").
-			Select("property_name").
-			Where("id = ?", *tour.PropertyID).
-			Scan(&propertyName).Error
-
-		if err == nil && propertyName != "" {
-			tourWithProp.PropertyName = &propertyName
-		}
-	}
 
 	return tourWithProp, nil
 }
@@ -256,6 +207,10 @@ func (s *service) GetScene(sceneID string) (*models.Scene, error) {
 
 func (s *service) UpdateScene(scene *models.Scene) error {
 	return s.repo.UpdateScene(scene)
+}
+
+func (s *service) UpdateSceneView(sceneID string, yaw, pitch, fov float64) error {
+	return s.repo.UpdateSceneView(sceneID, yaw, pitch, fov)
 }
 
 func (s *service) DeleteScene(sceneID string) error {
@@ -315,42 +270,6 @@ func (s *service) CreatePaymentSession(tour *models.Tour) (*models.PaymentSessio
 	}
 
 	return session, nil
-}
-
-// ValidateVendorPropertyAccess checks if a vendor has access to a specific property
-func (s *service) ValidateVendorPropertyAccess(userID string, propertyID string) error {
-	var count int64
-
-	// Check if the property belongs to a company created by this user
-	query := `
-		SELECT COUNT(*) 
-		FROM properties p 
-		JOIN companies c ON p.company_id = c.id 
-		WHERE p.id = ? 
-		AND c.created_by_user_id = ? 
-		AND p.approval_status = ?
-		AND p.property_type = ?
-		AND c.approved = true
-		AND c.status = ?
-	`
-
-	// Status.APPROVED = 1 (for both property approval_status and company status)
-	// PropertyType.VENUE = 0
-	err := s.mainDB.Raw(query, propertyID, userID, 1, 0, 1).Scan(&count).Error
-	if err != nil {
-		return err
-	}
-
-	if count == 0 {
-		return gorm.ErrRecordNotFound
-	}
-
-	return nil
-}
-
-// GetTourByPropertyID gets an existing tour for a property
-func (s *service) GetTourByPropertyID(propertyID string) (*models.Tour, error) {
-	return s.repo.GetTourByPropertyID(propertyID)
 }
 
 // HasFeaturedTour checks if any tour is currently featured

@@ -10,7 +10,6 @@ import (
 type Config struct {
 	Port            string
 	PostgresDSN     string
-	MainPostgresDSN string // Main TheNimto database for users, companies, properties
 	RedisAddr       string
 
 	R2Endpoint  string
@@ -27,6 +26,9 @@ type Config struct {
 	CORSOrigins []string
 	FFmpegBin   string
 	JWTSecret   string
+
+	// Claude API key for reading floor plans (dollhouse builder); empty disables it
+	AnthropicAPIKey string
 }
 
 func Load() Config {
@@ -34,7 +36,6 @@ func Load() Config {
 		// postgresql://company_user:pacecode@123@209.38.154.134/company"
 		Port:            get("PORT", "5555"),
 		PostgresDSN:     get("POSTGRES_DSN", "postgres://pacecode:root@localhost:5432/virtual?sslmode=disable"),
-		MainPostgresDSN: get("MAIN_POSTGRES_DSN", "postgres://nimto:nimto7f4556f43-61da-4bd7-9dca-99b046370f1a%40@209.38.154.134:5432/devevent?sslmode=disable"),
 		RedisAddr:       get("REDIS_ADDR", "localhost:6379"),
 		JWTSecret:       get("JWT_SECRET", "8db1b8d5158b97eb7b54bf002765323c04a5c1be86d34b44548637f6e7a358e160a078390957e5481b069761e8b8>"),
 
@@ -51,6 +52,8 @@ func Load() Config {
 		AuthJWKS:    get("AUTH_JWKS_URL", ""),
 		CORSOrigins: split(get("CORS_ORIGINS", "*")),
 		FFmpegBin:   get("FFMPEG_BIN", "/usr/bin/ffmpeg"),
+
+		AnthropicAPIKey: get("ANTHROPIC_API_KEY", ""),
 	}
 }
 

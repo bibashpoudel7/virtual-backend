@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"backend/internal/auth"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -50,10 +52,10 @@ func (h *Handler) UpdateSceneImages(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "associated tour not found"})
 		return
 	}
-	
-	// Check if user is superadmin (role "1") or tour owner
+
+	// Admins can manage any tour; users only their own
 	roleStr := role.(string)
-	if roleStr != "1" && tour.UserID != userID.(string) {
+	if roleStr != auth.RoleAdmin && tour.UserID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}

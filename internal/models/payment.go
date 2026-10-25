@@ -47,20 +47,6 @@ type Subscription struct {
 	BaseModel
 }
 
-// User represents a user from the main backend
-type User struct {
-	ID                string `json:"id" gorm:"primaryKey;size:50"`
-	Email             string `json:"email" gorm:"unique"`
-	Name              string `json:"name"`
-	StripeCustomerID  string `json:"stripe_customer_id,omitempty"`
-	PropertyID        *int64 `json:"property_id,omitempty"`
-	Role              string `json:"role"` // user, agent, admin
-	FreeTourUsed      int    `json:"free_tours_used" gorm:"default:0"`
-	TotalToursCreated int    `json:"total_tours_created" gorm:"default:0"`
-
-	BaseModel
-}
-
 // TourAccess represents access control for tours
 type TourAccess struct {
 	ID         string     `json:"id" gorm:"primaryKey;size:50"`

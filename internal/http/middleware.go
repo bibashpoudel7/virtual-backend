@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"backend/utils/jwt"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,7 +18,7 @@ func LoggingMiddleware() gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 		latency := time.Since(start)
-		log.Printf("%s %s %s %s", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), latency)
+		log.Printf("%s %s %d %s", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), latency)
 	}
 }
 
@@ -51,41 +50,6 @@ func CORSMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		c.Next()
-	}
-}
-
-// AuthMiddleware handles JWT authentication
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		println(authHeader)
-		if authHeader == "" {
-			c.AbortWithStatusJSON(401, gin.H{"error": "missing authorization header"})
-			return
-		}
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-
-		token, err := jwt.VerifyToken(tokenStr)
-		if err != nil {
-			c.AbortWithStatusJSON(401, gin.H{"error": "invalid tokens"})
-			return
-		}
-
-		claims := token.Claims.(jwt.MapClaims)
-		c.Set("user", claims) // pass claims to handlers
-		
-		// Extract user_id from claims (TheNimto uses 'sub' for user ID)
-		if sub, ok := claims["sub"].(string); ok {
-			c.Set("user_id", sub)
-		}
-		
-		// For TheNimto backend, role is sent via X-User-Role header, not in JWT
-		role := c.GetHeader("X-User-Role")
-		if role != "" {
-			c.Set("role", role)
-		}
-		
 		c.Next()
 	}
 }
