@@ -78,6 +78,8 @@ func MustConnect(cfg config.Config) *gorm.DB {
 // migrate runs database migrations
 func migrate(db *gorm.DB) error {
 	return db.AutoMigrate(
+		&models.User{},
+		&models.PendingSignup{},
 		&models.Tour{},
 		&models.TourScene{},
 		&models.Scene{},

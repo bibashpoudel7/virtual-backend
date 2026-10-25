@@ -8,7 +8,6 @@ import (
 	"backend/internal/payment"
 	"backend/internal/tours"
 	"log"
-	"os"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -17,11 +16,9 @@ import (
 func NewRouter(cfg config.Config, db *gorm.DB) *gin.Engine {
 	r := gin.Default()
 
-	// Get JWT secret from environment
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "8db1b8d5158b97eb7b54bf002765323c04a5c1be86d34b44548637f6e7a358e160a078390957e5481b069761e8b8c1dcd0489cb0fa2ab302071d>"
-	}
+	// JWT secret comes from config (JWT_SECRET env var), so token issuing
+	// and validation always use the same key.
+	jwtSecret := cfg.JWTSecret
 
 	// Add global middlewares
 	r.Use(
@@ -56,6 +53,10 @@ func NewRouter(cfg config.Config, db *gorm.DB) *gin.Engine {
 			c.JSON(401, gin.H{"valid": false})
 		}
 	})
+
+	// Auth endpoints - public (no token required yet)
+	authHandler := auth.NewHandler(auth.NewService(db, jwtSecret))
+	authHandler.RegisterRoutes(r.Group("/api/auth"))
 
 	// Payment endpoints - protected
 	paymentAPI := r.Group("/api/payment")

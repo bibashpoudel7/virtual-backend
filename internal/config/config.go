@@ -30,9 +30,9 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		// postgresql://company_user:pacecode@123@209.38.154.134/company"
+		// postgresql://postgres:root@localhost:5432/virtual?sslmode=disable
 		Port:        get("PORT", "5555"),
-		PostgresDSN: get("POSTGRES_DSN", "postgres://pacecode:root@localhost:5432/virtual?sslmode=disable"),
+		PostgresDSN: get("POSTGRES_DSN", "postgres://postgres:root@localhost:5432/virtual?sslmode=disable"),
 		RedisAddr:   get("REDIS_ADDR", "localhost:6379"),
 		JWTSecret:   get("JWT_SECRET", "8db1b8d5158b97eb7b54bf002765323c04a5c1be86d34b44548637f6e7a358e160a078390957e5481b069761e8b8>"),
 
