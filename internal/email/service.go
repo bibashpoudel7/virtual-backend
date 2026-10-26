@@ -150,6 +150,55 @@ func (s *Service) buildMessage(to []string, subject, body string) []byte {
 	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + normalized)
 }
 
+// loginAuth implements smtp.Auth for the LOGIN mechanism (required by Office 365 / Outlook,
+// which advertises AUTH LOGIN XOAUTH2 and rejects AUTH PLAIN with 504 5.7.4).
+type loginAuth struct {
+	username, password, host string
+}
+
+func (a *loginAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	if !server.TLS && server.Name != "localhost" && server.Name != "127.0.0.1" && server.Name != "::1" {
+		return "", nil, fmt.Errorf("unencrypted connection")
+	}
+	if server.Name != a.host {
+		return "", nil, fmt.Errorf("wrong host name")
+	}
+	return "LOGIN", nil, nil
+}
+
+func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if !more {
+		return nil, nil
+	}
+	prompt := strings.ToLower(strings.TrimSpace(string(fromServer)))
+	switch {
+	case strings.HasPrefix(prompt, "username"):
+		return []byte(a.username), nil
+	case strings.HasPrefix(prompt, "password"):
+		return []byte(a.password), nil
+	default:
+		return nil, fmt.Errorf("unexpected server challenge: %s", string(fromServer))
+	}
+}
+
+func (s *Service) smtpAuth(client *smtp.Client) smtp.Auth {
+	if ok, mechs := client.Extension("AUTH"); ok {
+		var hasPlain, hasLogin bool
+		for _, m := range strings.Fields(strings.ToUpper(mechs)) {
+			switch m {
+			case "PLAIN":
+				hasPlain = true
+			case "LOGIN":
+				hasLogin = true
+			}
+		}
+		if hasLogin && !hasPlain {
+			return &loginAuth{username: s.username, password: s.password, host: s.host}
+		}
+	}
+	return smtp.PlainAuth("", s.username, s.password, s.host)
+}
+
 func (s *Service) sendEmail(to []string, subject, body string) error {
 	addr := net.JoinHostPort(s.host, strconv.Itoa(s.port))
 	tlsConfig := &tls.Config{ServerName: s.host, MinVersion: tls.VersionTLS12, RootCAs: s.rootCAs}
@@ -184,7 +233,7 @@ func (s *Service) sendEmail(to []string, subject, body string) error {
 	}
 
 	if s.username != "" {
-		if err := client.Auth(smtp.PlainAuth("", s.username, s.password, s.host)); err != nil {
+		if err := client.Auth(s.smtpAuth(client)); err != nil {
 			return fmt.Errorf("smtp auth: %w", err)
 		}
 	}
