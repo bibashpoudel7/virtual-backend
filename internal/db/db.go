@@ -20,6 +20,10 @@ type Databases struct {
 
 // MustConnect establishes the database connection and runs migrations
 func MustConnect(cfg config.Config) *Databases {
+	if cfg.PostgresDSN == "" {
+		log.Fatal("POSTGRES_DSN environment variable must be set in .env")
+	}
+
 	// Configure GORM with additional settings
 	gormConfig := &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent), // Disable all SQL logging

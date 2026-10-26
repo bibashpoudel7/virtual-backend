@@ -34,7 +34,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		Port:        get("PORT", "5555"),
-		PostgresDSN: get("POSTGRES_DSN", "postgres://localhost:5432/virtual?sslmode=disable"),
+		PostgresDSN: get("POSTGRES_DSN", ""),
 		RedisAddr:   get("REDIS_ADDR", "localhost:6379"),
 		JWTSecret:   get("JWT_SECRET", ""),
 
