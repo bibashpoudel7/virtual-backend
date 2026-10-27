@@ -36,7 +36,7 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 
 	// Add global middlewares
 	r.Use(
-		DefaultCORSConfig(),
+		ConfigureCORS(cfg.CORSOrigins),
 		LoggingMiddleware(),
 	)
 
