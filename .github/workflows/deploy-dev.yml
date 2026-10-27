@@ -23,7 +23,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # The image contains no secrets: the server provides configuration as environment variables
+      - name: Remove existing env file
+        run: rm -rf .env
+
+      - name: Create .env file from base64 secret
+        run: |
+          RAW_ENV="${{ secrets.DEV_ENV_FILE || secrets.DEV_ENV_BASE64 || secrets.ENV_BASE64 }}"
+          if [ -n "$RAW_ENV" ]; then
+            echo "$RAW_ENV" | base64 -d > .env
+            echo ".env created successfully for backend development build"
+          else
+            echo "ERROR: Neither DEV_ENV_FILE nor DEV_ENV_BASE64 secret is set!"
+            exit 1
+          fi
+
       - name: Login to Docker Hub, Build and Push Docker Image
         run: |
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
@@ -33,6 +46,9 @@ jobs:
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/virtual-backend:develop
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/virtual-backend:develop-${{ github.sha }}
           docker image prune -f
+
+      - name: Cleanup sensitive files
+        run: rm -rf .env
 
   deploy:
     name: Deploy
@@ -50,25 +66,25 @@ jobs:
             echo ${{ secrets.SUDO_PASSWORD }} | sudo -S bash -c 'echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin'
 
             # Pull the new image
-            echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker compose pull backend
+            echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker compose pull virtual_backend
 
-            # Restart the backend with the new image (it creates/updates model tables on start)
-            echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker compose up -d backend
+            # Restart virtual_backend with the new image
+            echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker compose up -d virtual_backend
 
             # Wait until it answers /health (up to ~60s)
             for i in $(seq 1 30); do
-              if echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker compose exec -T backend wget -qO- http://localhost:5555/health >/dev/null 2>&1; then echo "backend healthy"; break; fi
+              if echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker compose exec -T virtual_backend wget -qO- http://localhost:5555/health >/dev/null 2>&1; then echo "backend healthy"; break; fi
               if [ "$i" = 30 ]; then echo "backend did not become healthy"; exit 1; fi
               sleep 2
             done
 
-            # Apply pending SQL migrations (tracked in the migrations table, so already-applied ones are skipped)
-            echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker compose exec -T backend ./migrate
+            # Apply pending SQL migrations
+            echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker compose exec -T virtual_backend ./migrate
 
             # Removing dangling images
             echo ${{ secrets.SUDO_PASSWORD }} | sudo -S docker image prune -f
 
-          host: ${{ secrets.SERVER_IP }}
-          user: ${{ secrets.SSH_USER }}
+          host: ${{ secrets.DEV_SERVER_IP }}
+          user: ${{ secrets.DEV_SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           options: "-T -o StrictHostKeyChecking=no"

@@ -47,3 +47,4 @@ debug/
 .Trashes
 ehthumbs.db
 Thumbs.db
+docker-compose.yml
