@@ -1,6 +1,7 @@
 package http
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -10,7 +11,23 @@ import (
 // ConfigureCORS sets up CORS middleware for microservice
 func ConfigureCORS(allowedOrigins []string) gin.HandlerFunc {
 	config := cors.Config{
-		AllowOrigins: allowedOrigins,
+		AllowOriginFunc: func(origin string) bool {
+			// Allow all thenimto.com subdomains and apex
+			if origin == "https://thenimto.com" || strings.HasSuffix(origin, ".thenimto.com") {
+				return true
+			}
+			// Allow local development
+			if strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") {
+				return true
+			}
+			// Check configured origins
+			for _, o := range allowedOrigins {
+				if o == origin || o == "*" {
+					return true
+				}
+			}
+			return false
+		},
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
 		AllowHeaders: []string{
 			"Origin",
@@ -37,13 +54,5 @@ func ConfigureCORS(allowedOrigins []string) gin.HandlerFunc {
 
 // DefaultCORSConfig returns default CORS configuration
 func DefaultCORSConfig() gin.HandlerFunc {
-	defaultOrigins := []string{
-		"http://localhost:3000",  // Virtual frontend (Next.js)
-		"http://localhost:3001",  // Main frontend (TheNimto web app)
-		"http://localhost:3002",  // Microfrontend dev
-		"http://localhost:8080",  // Microservice (NestJS backend - main TheNimto)
-		"https://yourdomain.com", // Production domain
-	}
-
-	return ConfigureCORS(defaultOrigins)
+	return ConfigureCORS(nil)
 }
