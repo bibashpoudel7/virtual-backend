@@ -23,6 +23,10 @@ RUN apk add --no-cache ca-certificates tzdata \
 WORKDIR /app
 COPY --from=builder /out/api /out/migrate ./
 COPY migrations ./migrations
+# Copy .env generated during GitHub Actions build into the runtime container
+COPY .env* ./
+
+RUN chown -R app:app /app
 
 USER app
 
@@ -30,5 +34,4 @@ ENV PORT=5555 \
     GIN_MODE=release
 EXPOSE 5555
 
-# Configuration comes from environment variables at runtime (never baked into the image)
 CMD ["./api"]
