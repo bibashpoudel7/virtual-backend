@@ -47,24 +47,6 @@ type Subscription struct {
 	BaseModel
 }
 
-// User is an account that can sign in to this backend.
-// PasswordHash is a bcrypt hash and is never serialised to JSON.
-type User struct {
-	ID                string `json:"id" gorm:"primaryKey;size:50"`
-	Email             string `json:"email" gorm:"unique"`
-	Name              string `json:"name"`
-	PasswordHash      string `json:"-" gorm:"column:password_hash;size:255"`
-	StripeCustomerID  string `json:"stripe_customer_id,omitempty"`
-	PropertyID        *int64 `json:"property_id,omitempty"`
-	Role              string `json:"role"` // user, agent, admin
-	FreeTourUsed      int    `json:"free_tours_used" gorm:"default:0"`
-	TotalToursCreated int    `json:"total_tours_created" gorm:"default:0"`
-
-	LastLoginAt *time.Time `json:"last_login_at,omitempty" gorm:"column:last_login_at"`
-
-	BaseModel
-}
-
 // TourAccess represents access control for tours
 type TourAccess struct {
 	ID         string     `json:"id" gorm:"primaryKey;size:50"`

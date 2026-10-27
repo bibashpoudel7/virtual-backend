@@ -10,7 +10,7 @@ tmp_dir = "tmp"
   pre_cmd = ["echo 'Building...'"]
   
   # Just plain old shell command. You could use `make` as well.
-  cmd = "go build -o ./tmp/main ./cmd/server"
+  cmd = "go build -o ./tmp/main ./cmd/api"
   
   # Array of commands to run after build
   post_cmd = ["echo 'Build complete!'"]

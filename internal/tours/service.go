@@ -19,17 +19,21 @@ type Service interface {
 	GetTour(id string) (*models.Tour, error)
 	UpdateTour(tour *models.Tour) error
 	DeleteTour(id string) error
-	ListTours(propertyID string) ([]models.Tour, error)
-	ListAllTours() ([]models.Tour, error)
+	ListAllTours(page, limit int) ([]models.TourWithProperty, int64, error)
+	ListAllPublicTours(page, limit int) ([]models.TourWithProperty, int64, error)
+	ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error)
+	GetFeaturedTour(userID string) (*models.TourWithProperty, error)
+	UnfeatureAllTours(userID string) error
 
 	// Scene management
 	CreateScene(scene *models.Scene) error
 	GetScene(sceneID string) (*models.Scene, error)
 	UpdateScene(scene *models.Scene) error
+	UpdateSceneView(sceneID string, yaw, pitch, fov float64) error
 	DeleteScene(sceneID string) error
-	ListScenes(tourID string) ([]models.Scene, error)
+	ListScenes(tourID string, page, limit int) ([]models.Scene, int64, error)
 
-	// NEW:
+	// Hotspot methods
 	CreateHotspot(
 		sceneID,
 		tourID,
@@ -39,37 +43,65 @@ type Service interface {
 		pitch float64,
 		payload map[string]any,
 	) (*models.Hotspot, error)
+	GetHotspot(hotspotID string) (*models.Hotspot, error)
 	ListHotspots(sceneID string) ([]models.Hotspot, error)
 	UpdateHotspot(hotspot *models.Hotspot) error
 	DeleteHotspot(hotspotID string) error
 
+	// Overlay methods
+	CreateOverlay(
+		sceneID,
+		tourID,
+		kind string,
+		yaw,
+		pitch float64,
+		payload map[string]any,
+	) (*models.Overlay, error)
+	GetOverlay(overlayID string) (*models.Overlay, error)
+	ListOverlays(sceneID string) ([]models.Overlay, error)
+	UpdateOverlay(overlay *models.Overlay) error
+	DeleteOverlay(overlayID string) error
+
 	// Payment related
 	CheckIfPaymentRequired(userID string) (bool, error)
 	CreatePaymentSession(tour *models.Tour) (*models.PaymentSession, error)
+
+	// Check if any tour is featured
+	HasFeaturedTour() (bool, error)
+
+	// PlayTour methods
+	CreatePlayTour(playTour *models.PlayTour) error
+	GetPlayTour(id string) (*models.PlayTour, error)
+	UpdatePlayTour(playTour *models.PlayTour) error
+	DeletePlayTour(id string) error
+	ListPlayTours(tourID string) ([]models.PlayTour, error)
 }
 
 type service struct {
 	repo Repository
 }
 
-func NewService(db *gorm.DB, cfg config.Config) (Service, error) {
-	repo := NewRepository(db)
-	return &service{
-		repo: repo,
-	}, nil
+func NewService(virtualDB *gorm.DB, cfg config.Config) (Service, error) {
+	return &service{repo: NewRepository(virtualDB)}, nil
 }
 
 func (s *service) CreateTour(tour *models.Tour) error {
+	// Check if user has any existing tours
+	count, err := s.repo.CountUserTours(tour.UserID)
+	if err != nil {
+		return err
+	}
+
+	// If this is the user's first tour, make it featured automatically
+	if count == 0 {
+		tour.IsFeaturedOnHomepage = true
+	}
 
 	return s.repo.Create(tour)
 }
 
 func (s *service) GetTour(id string) (*models.Tour, error) {
 	return s.repo.FindByID(id)
-}
-
-func (s *service) ListTours(propertyID string) ([]models.Tour, error) {
-	return s.repo.FindByProperty(propertyID)
 }
 
 func (s *service) CreateHotspot(sceneID, tourID, targetSceneID, kind string, yaw, pitch float64, payload map[string]any) (*models.Hotspot, error) {
@@ -84,6 +116,10 @@ func (s *service) ListHotspots(sceneID string) ([]models.Hotspot, error) {
 	return s.repo.ListHotspots(sceneID)
 }
 
+func (s *service) GetHotspot(hotspotID string) (*models.Hotspot, error) {
+	return s.repo.GetHotspot(hotspotID)
+}
+
 func (s *service) UpdateTour(tour *models.Tour) error {
 	return s.repo.UpdateTour(tour)
 }
@@ -92,8 +128,73 @@ func (s *service) DeleteTour(id string) error {
 	return s.repo.DeleteTour(id)
 }
 
-func (s *service) ListAllTours() ([]models.Tour, error) {
-	return s.repo.ListAllTours()
+func (s *service) ListAllTours(page, limit int) ([]models.TourWithProperty, int64, error) {
+	// Get paginated tours from virtual database
+	tours, total, err := s.repo.ListAllTours(page, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Convert to TourWithProperty (property names are no longer looked up)
+	var toursWithProperty []models.TourWithProperty
+	for _, tour := range tours {
+		tourWithProp := models.TourWithProperty{Tour: tour}
+
+
+		toursWithProperty = append(toursWithProperty, tourWithProp)
+	}
+
+	return toursWithProperty, total, nil
+}
+
+func (s *service) ListAllPublicTours(page, limit int) ([]models.TourWithProperty, int64, error) {
+	offset := (page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Get published tours from virtual database
+	tours, total, err := s.repo.ListAllPublicTours(offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Convert to TourWithProperty (property names are no longer looked up)
+	var toursWithProperty []models.TourWithProperty
+	for _, tour := range tours {
+		tourWithProp := models.TourWithProperty{Tour: tour}
+
+
+		toursWithProperty = append(toursWithProperty, tourWithProp)
+	}
+
+	return toursWithProperty, total, nil
+}
+
+func (s *service) ListAllToursWithPagination(page, limit int) ([]models.TourWithProperty, int64, error) {
+	return s.ListAllTours(page, limit)
+}
+
+func (s *service) ListUserTours(userID string, page, limit int) ([]models.Tour, int64, error) {
+	return s.repo.ListUserTours(userID, page, limit)
+}
+
+func (s *service) GetFeaturedTour(userID string) (*models.TourWithProperty, error) {
+	// Get the featured tour directly from database for this user
+	tour, err := s.repo.GetFeaturedTour(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to TourWithProperty (property names are no longer looked up)
+	tourWithProp := &models.TourWithProperty{Tour: *tour}
+
+
+	return tourWithProp, nil
+}
+
+func (s *service) UnfeatureAllTours(userID string) error {
+	return s.repo.UnfeatureAllTours(userID)
 }
 
 func (s *service) CreateScene(scene *models.Scene) error {
@@ -108,12 +209,28 @@ func (s *service) UpdateScene(scene *models.Scene) error {
 	return s.repo.UpdateScene(scene)
 }
 
+func (s *service) UpdateSceneView(sceneID string, yaw, pitch, fov float64) error {
+	return s.repo.UpdateSceneView(sceneID, yaw, pitch, fov)
+}
+
 func (s *service) DeleteScene(sceneID string) error {
 	return s.repo.DeleteScene(sceneID)
 }
 
-func (s *service) ListScenes(tourID string) ([]models.Scene, error) {
-	return s.repo.ListScenes(tourID)
+func (s *service) ListScenes(tourID string, page, limit int) ([]models.Scene, int64, error) {
+	offset := (page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+	scenes, err := s.repo.ListScenes(tourID, offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	count, err := s.repo.CountScenes(tourID)
+	if err != nil {
+		return scenes, 0, err
+	}
+	return scenes, count, nil
 }
 
 func (s *service) UpdateHotspot(hotspot *models.Hotspot) error {
@@ -153,4 +270,52 @@ func (s *service) CreatePaymentSession(tour *models.Tour) (*models.PaymentSessio
 	}
 
 	return session, nil
+}
+
+// HasFeaturedTour checks if any tour is currently featured
+func (s *service) HasFeaturedTour() (bool, error) {
+	return s.repo.HasFeaturedTour()
+}
+
+// Overlay service methods
+func (s *service) CreateOverlay(sceneID, tourID, kind string, yaw, pitch float64, payload map[string]any) (*models.Overlay, error) {
+	return s.repo.CreateOverlay(tourID, sceneID, kind, yaw, pitch, payload)
+}
+
+func (s *service) GetOverlay(overlayID string) (*models.Overlay, error) {
+	return s.repo.GetOverlay(overlayID)
+}
+
+func (s *service) ListOverlays(sceneID string) ([]models.Overlay, error) {
+	return s.repo.ListOverlays(sceneID)
+}
+
+func (s *service) UpdateOverlay(overlay *models.Overlay) error {
+	return s.repo.UpdateOverlay(overlay)
+}
+
+func (s *service) DeleteOverlay(overlayID string) error {
+	return s.repo.DeleteOverlay(overlayID)
+}
+
+// PlayTour service implementations
+
+func (s *service) CreatePlayTour(playTour *models.PlayTour) error {
+	return s.repo.CreatePlayTour(playTour)
+}
+
+func (s *service) GetPlayTour(id string) (*models.PlayTour, error) {
+	return s.repo.GetPlayTour(id)
+}
+
+func (s *service) UpdatePlayTour(playTour *models.PlayTour) error {
+	return s.repo.UpdatePlayTour(playTour)
+}
+
+func (s *service) DeletePlayTour(id string) error {
+	return s.repo.DeletePlayTour(id)
+}
+
+func (s *service) ListPlayTours(tourID string) ([]models.PlayTour, error) {
+	return s.repo.ListPlayTours(tourID)
 }

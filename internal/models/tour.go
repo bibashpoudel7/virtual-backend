@@ -1,17 +1,85 @@
 package models
 
+import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// StringArray is a custom type for handling PostgreSQL text[] arrays
+type StringArray []string
+
+// Scan implements the sql.Scanner interface for reading from database
+func (a *StringArray) Scan(value interface{}) error {
+	if value == nil {
+		*a = StringArray{}
+		return nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		// Handle PostgreSQL array format: {item1,item2,item3}
+		if v == "{}" || v == "" {
+			*a = StringArray{}
+			return nil
+		}
+
+		// Remove braces and split by comma
+		v = strings.Trim(v, "{}")
+		if v == "" {
+			*a = StringArray{}
+			return nil
+		}
+
+		items := strings.Split(v, ",")
+		result := make(StringArray, len(items))
+		for i, item := range items {
+			// Remove quotes if present
+			result[i] = strings.Trim(item, `"`)
+		}
+		*a = result
+		return nil
+	case []byte:
+		return a.Scan(string(v))
+	default:
+		return fmt.Errorf("cannot scan %T into StringArray", value)
+	}
+}
+
+// Value implements the driver.Valuer interface for writing to database
+func (a StringArray) Value() (driver.Value, error) {
+	if len(a) == 0 {
+		return "{}", nil
+	}
+
+	// Format as PostgreSQL array: {item1,item2,item3}
+	items := make([]string, len(a))
+	for i, item := range a {
+		// Escape quotes and wrap in quotes if needed
+		if strings.Contains(item, ",") || strings.Contains(item, " ") {
+			items[i] = fmt.Sprintf(`"%s"`, strings.ReplaceAll(item, `"`, `\"`))
+		} else {
+			items[i] = item
+		}
+	}
+	return fmt.Sprintf("{%s}", strings.Join(items, ",")), nil
+}
+
 // Tour represents a full virtual tour
 type Tour struct {
-	ID                 string  `json:"id" gorm:"primaryKey;size:50;column:id"`
-	Name               string  `json:"name" gorm:"column:name"`
-	UserID             string  `json:"user_id" gorm:"column:user_id;size:50;index"`     // Owner of the tour
-	PropertyID         *int64  `json:"property_id,omitempty" gorm:"column:property_id"` // nullable - only if from main frontend
-	BackgroundAudioURL *string `json:"background_audio_url,omitempty" gorm:"column:background_audio_url"`
-	IsPublished        bool    `json:"is_published" gorm:"column:is_published"`
-	AutoplayEnabled    bool    `json:"autoplay_enabled" gorm:"column:autoplay_enabled"`  // nullable
-	IsPaid             bool    `json:"is_paid" gorm:"column:is_paid;default:false"`      // Whether payment was made
-	PaymentID          *string `json:"payment_id,omitempty" gorm:"column:payment_id"`    // Reference to payment
-	Source             string  `json:"source" gorm:"column:source;default:'standalone'"` // 'main_app' or 'standalone'
+	ID                   string      `json:"id" gorm:"primaryKey;size:50;column:id"`
+	Name                 string      `json:"name" gorm:"column:name"`
+	UserID               string      `json:"user_id" gorm:"column:user_id;size:50;index"`     // Owner of the tour
+	PropertyID           *string     `json:"property_id,omitempty" gorm:"column:property_id"` // nullable - only if from main frontend
+	BackgroundAudioURL   *string     `json:"background_audio_url,omitempty" gorm:"column:background_audio_url"`
+	IsPublished          bool        `json:"is_published" gorm:"column:is_published"`
+	IsFeaturedOnHomepage bool        `json:"is_featured_on_homepage" gorm:"column:is_featured_on_homepage;default:false"`
+	AutoplayEnabled      bool        `json:"autoplay_enabled" gorm:"column:autoplay_enabled"`              // nullable
+	IsPaid               bool        `json:"is_paid" gorm:"column:is_paid;default:false"`                  // Whether payment was made
+	PaymentID            *string     `json:"payment_id,omitempty" gorm:"column:payment_id"`                // Reference to payment
+	Source               string      `json:"source" gorm:"column:source;default:'standalone'"`             // 'main_app' or 'standalone'
+	Categories           StringArray `json:"categories" gorm:"column:categories;type:text[];default:'{}'"` // e.g. ["education", "hotel"]
 
 	DefaultFOV        float64 `json:"default_fov" gorm:"default:75;column:default_fov"`
 	DefaultYawSpeed   float64 `json:"default_yaw_speed" gorm:"default:0.01;column:default_yaw_speed"`
@@ -24,9 +92,28 @@ type Tour struct {
 	AutoPauseOnInteraction bool   `json:"auto_pause_on_interaction" gorm:"column:auto_pause_on_interaction;default:true"`
 	AutoRestartDelay       int    `json:"auto_restart_delay" gorm:"column:auto_restart_delay;default:30000"` // milliseconds to wait before restarting after interaction
 
+	// Custom cover image URL
+	CoverImageURL *string `json:"cover_image_url,omitempty" gorm:"column:cover_image_url"`
+
+	// Optional 3D model (.glb) shown as an intro screen before the 360° tour starts
+	IntroModelURL *string `json:"intro_model_url,omitempty" gorm:"column:intro_model_url"`
+	// Clickable room labels on the intro model: [{"sceneId","label","position":[x,y,z]}]
+	IntroModelRooms json.RawMessage `json:"intro_model_rooms,omitempty" gorm:"type:jsonb;column:intro_model_rooms"`
+	// Rooms measured with the Android capture app: {"version":1,"rooms":[...]} (see floorplan.BuildingScan)
+	BuildingScan json.RawMessage `json:"building_scan,omitempty" gorm:"type:jsonb;column:building_scan"`
+
+	// Thumbnail URL from cover image or first scene (not stored in DB, populated at runtime)
+	ThumbnailURL *string `json:"thumbnail_url,omitempty" gorm:"-"`
+
 	TourScenes []TourScene `json:"tour_scenes" gorm:"foreignKey:TourID"`
 
 	BaseModel
+}
+
+// TourWithProperty represents a tour with property information included
+type TourWithProperty struct {
+	Tour
+	PropertyName *string `json:"property_name,omitempty"`
 }
 
 // TourScene maps which scenes are part of a tour and their sequence
@@ -69,13 +156,14 @@ type Scene struct {
 
 // Hotspot represents clickable points in a scene
 type Hotspot struct {
-	ID            string  `json:"id" gorm:"primaryKey;size:50;column:id"`
-	TourID        string  `json:"tour_id" gorm:"index;column:tour_id"`
-	SceneID       string  `json:"scene_id" gorm:"index;column:scene_id"`
-	TargetSceneID string  `json:"target_scene_id" gorm:"index;column:target_scene_id"`
-	Kind          string  `json:"kind" gorm:"column:kind"` // navigation, info, image
-	Yaw           float64 `json:"yaw" gorm:"column:yaw"`
-	Pitch         float64 `json:"pitch" gorm:"column:pitch"`
+	ID                  string  `json:"id" gorm:"primaryKey;size:50;column:id"`
+	TourID              string  `json:"tour_id" gorm:"index;column:tour_id"`
+	SceneID             string  `json:"scene_id" gorm:"index;column:scene_id"`
+	TargetSceneID       string  `json:"target_scene_id" gorm:"index;column:target_scene_id"`
+	Kind                string  `json:"kind" gorm:"column:kind"` // navigation, info, image
+	Yaw                 float64 `json:"yaw" gorm:"column:yaw"`
+	Pitch               float64 `json:"pitch" gorm:"column:pitch"`
+	TransitionDirection string  `json:"transition_direction" gorm:"column:transition_direction"` // forward, backward, left, right, up, down
 
 	Payload string `json:"payload,omitempty" gorm:"type:jsonb;column:payload"` // supports multiple targets + rotation points
 
@@ -92,6 +180,49 @@ type Overlay struct {
 	Pitch   float64 `json:"pitch" gorm:"column:pitch"`
 
 	Payload string `json:"payload,omitempty" gorm:"type:jsonb;column:payload"`
+
+	BaseModel
+}
+
+// PlayTour represents a selective tour with custom camera movements
+type PlayTour struct {
+	ID     string `json:"id" gorm:"primaryKey;size:50;column:id"`
+	TourID string `json:"tour_id" gorm:"index;column:tour_id"`
+	Name   string `json:"name" gorm:"column:name"`
+	UserID string `json:"user_id" gorm:"column:user_id;size:50;index"`
+
+	PlayTourScenes []PlayTourScene `json:"play_tour_scenes" gorm:"foreignKey:PlayTourID"`
+
+	BaseModel
+}
+
+// PlayTourScene defines a scene in a PlayTour with its camera movement path
+type PlayTourScene struct {
+	ID            string `json:"id" gorm:"primaryKey;size:50;column:id"`
+	PlayTourID    string `json:"play_tour_id" gorm:"index;column:play_tour_id"`
+	SceneID       string `json:"scene_id" gorm:"index;column:scene_id"`
+	SequenceOrder int    `json:"sequence_order" gorm:"column:sequence_order"`
+
+	// Start camera position
+	StartYaw   float64 `json:"start_yaw" gorm:"column:start_yaw"`
+	StartPitch float64 `json:"start_pitch" gorm:"column:start_pitch"`
+	StartFOV   float64 `json:"start_fov" gorm:"column:start_fov"`
+
+	// End camera position
+	EndYaw   float64 `json:"end_yaw" gorm:"column:end_yaw"`
+	EndPitch float64 `json:"end_pitch" gorm:"column:end_pitch"`
+	EndFOV   float64 `json:"end_fov" gorm:"column:end_fov"`
+
+	// Optional points the camera curves through between start and end:
+	// [{"yaw","pitch","fov","move","hold"}, ...] where move/hold are optional milliseconds
+	Waypoints json.RawMessage `json:"waypoints,omitempty" gorm:"type:jsonb;column:waypoints"`
+
+	StartHold           int     `json:"start_hold" gorm:"column:start_hold;default:0"`           // milliseconds to stay on the start view before moving
+	MoveDuration        int     `json:"move_duration" gorm:"column:move_duration;default:5000"` // milliseconds
+	WaitDuration        int     `json:"wait_duration" gorm:"column:wait_duration;default:2000"` // milliseconds
+	TransitionDirection string  `json:"transition_direction" gorm:"column:transition_direction;default:forward"`
+	Title               *string `json:"title,omitempty" gorm:"column:title"`
+	Description         *string `json:"description,omitempty" gorm:"column:description"`
 
 	BaseModel
 }

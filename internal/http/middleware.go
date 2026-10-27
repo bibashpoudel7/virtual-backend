@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"backend/utils/jwt"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,7 +18,7 @@ func LoggingMiddleware() gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 		latency := time.Since(start)
-		log.Printf("%s %s %s %s", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), latency)
+		log.Printf("%s %s %d %s", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), latency)
 	}
 }
 
@@ -51,29 +50,6 @@ func CORSMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		c.Next()
-	}
-}
-
-// AuthMiddleware handles JWT authentication
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		println(authHeader)
-		if authHeader == "" {
-			c.AbortWithStatusJSON(401, gin.H{"error": "missing authorization header"})
-			return
-		}
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-
-		token, err := jwt.VerifyToken(tokenStr)
-		if err != nil {
-			c.AbortWithStatusJSON(401, gin.H{"error": "invalid tokens"})
-			return
-		}
-
-		claims := token.Claims.(jwt.MapClaims)
-		c.Set("user", claims) // pass claims to handlers
 		c.Next()
 	}
 }

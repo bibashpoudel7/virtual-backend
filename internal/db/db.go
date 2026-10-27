@@ -14,11 +14,19 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// MustConnect establishes a database connection with retry logic and proper connection pooling
-func MustConnect(cfg config.Config) *gorm.DB {
+type Databases struct {
+	Virtual *gorm.DB // Users, tours, scenes, hotspots
+}
+
+// MustConnect establishes the database connection and runs migrations
+func MustConnect(cfg config.Config) *Databases {
+	if cfg.PostgresDSN == "" {
+		log.Fatal("POSTGRES_DSN environment variable must be set in .env")
+	}
+
 	// Configure GORM with additional settings
 	gormConfig := &gorm.Config{
-		Logger: logger.Default,
+		Logger: logger.Default.LogMode(logger.Silent), // Disable all SQL logging
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -26,19 +34,34 @@ func MustConnect(cfg config.Config) *gorm.DB {
 		SkipDefaultTransaction: true, // Better performance for bulk operations
 	}
 
-	// Initialize database connection with retry logic
+	// Connect to virtual database (primary)
+	virtualDB := connectWithRetry(cfg.PostgresDSN, gormConfig, "virtual")
+	
+	// Run migrations only on virtual database
+	if err := migrate(virtualDB); err != nil {
+		log.Fatalf("virtual database migration failed: %v", err)
+	}
+
+	log.Println("Database connected successfully")
+	return &Databases{
+		Virtual: virtualDB,
+	}
+}
+
+// connectWithRetry establishes a database connection with retry logic
+func connectWithRetry(dsn string, gormConfig *gorm.Config, dbName string) *gorm.DB {
 	var db *gorm.DB
 	var err error
 	maxRetries := 3
 
 	for i := 0; i < maxRetries; i++ {
-		db, err = gorm.Open(postgres.Open(cfg.PostgresDSN), gormConfig)
+		db, err = gorm.Open(postgres.Open(dsn), gormConfig)
 		if err == nil {
 			break
 		}
 
 		if i == maxRetries-1 {
-			log.Fatalf("failed to connect to database after %d attempts: %v", maxRetries, err)
+			log.Fatalf("failed to connect to %s database after %d attempts: %v", dbName, maxRetries, err)
 		}
 
 		time.Sleep(time.Second * time.Duration(1<<i)) // Exponential backoff
@@ -47,7 +70,7 @@ func MustConnect(cfg config.Config) *gorm.DB {
 	// Get underlying sql.DB for connection pool configuration
 	sqlDB, err := db.DB()
 	if err != nil {
-		log.Fatalf("failed to get underlying sql.DB: %v", err)
+		log.Fatalf("failed to get underlying sql.DB for %s: %v", dbName, err)
 	}
 
 	// Set connection pool settings
@@ -62,45 +85,45 @@ func MustConnect(cfg config.Config) *gorm.DB {
 
 	if err := sqlDB.PingContext(ctx); err != nil {
 		sqlDB.Close()
-		log.Fatalf("database ping failed: %v", err)
+		log.Fatalf("%s database ping failed: %v", dbName, err)
 	}
 
-	// Run migrations
-	if err := migrate(db); err != nil {
-		sqlDB.Close()
-		log.Fatalf("database migration failed: %v", err)
-	}
-
-	log.Println("PostgreSQL connected successfully with connection pooling")
+	log.Printf("%s database connected successfully", dbName)
 	return db
 }
 
 // migrate runs database migrations
 func migrate(db *gorm.DB) error {
 	return db.AutoMigrate(
-		&models.User{},
-		&models.PendingSignup{},
 		&models.Tour{},
 		&models.TourScene{},
 		&models.Scene{},
 		&models.Hotspot{},
 		&models.Overlay{},
+		&models.PlayTour{},
+		&models.PlayTourScene{},
+		&models.EmbedToken{},
+		&models.User{},
+		&models.EmailOTP{},
 	)
 }
 
-// CloseDB closes the database connection
-func CloseDB(db *gorm.DB) {
-	if db == nil {
-		return
+// CloseDBs closes both database connections
+func CloseDBs(dbs *Databases) {
+	if dbs.Virtual != nil {
+		closeDB(dbs.Virtual, "virtual")
 	}
+}
 
+// closeDB closes a single database connection
+func closeDB(db *gorm.DB, name string) {
 	sqlDB, err := db.DB()
 	if err != nil {
-		log.Printf("failed to get underlying sql.DB: %v", err)
+		log.Printf("failed to get underlying sql.DB for %s: %v", name, err)
 		return
 	}
 
 	if err := sqlDB.Close(); err != nil {
-		log.Printf("error closing database: %v", err)
+		log.Printf("error closing %s database: %v", name, err)
 	}
 }

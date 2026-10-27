@@ -1,0 +1,53 @@
+PORT=5555
+# Secret for signing login tokens: a random value of at least 32 characters,
+# NOT shared with any other system (e.g. `openssl rand -hex 32`)
+JWT_SECRET=
+# Virtual backend database for tours, scenes, hotspots
+POSTGRES_DSN=
+REDIS_ADDR=
+
+
+# Cloudflare R2 (S3-compatible). Create an R2 bucket and an API token with permission.
+R2_ENDPOINT=
+R2_REGION=
+R2_BUCKET=
+R2_ACCESS_KEY=
+R2_SECRET_KEY=
+R2_ACCOUNT_ID=
+R2_USE_PATH_STYLE=
+
+
+# Optional: Cloudflare Images direct upload
+CF_IMAGES_ACCOUNT_ID=
+CF_IMAGES_API_TOKEN=
+
+# Claude API key for reading floor plans in the dollhouse builder (optional)
+ANTHROPIC_API_KEY=
+
+
+AUTH_JWKS_URL=
+CORS_ORIGINS=
+FFMPEG_BIN=
+
+
+
+
+## Email (SMTP), same settings as the TheNimto nodemailer config
+# Port 587 = STARTTLS (nodemailer secure:false). Port 465 or EMAIL_SECURE=true = implicit TLS (secure:true).
+# Used for sign-up / password-reset codes and contact form notifications.
+EMAIL_ADDRESS=info@thenimto.com
+EMAIL_PASSWORD=
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+# Optional: sender shown to users (defaults to EMAIL_ADDRESS / "Virtual Tours")
+EMAIL_DEFAULT_FROM=
+EMAIL_FROM_NAME=Virtual Tours
+EMAIL_SECURE=false
+## Accounts
+# Comma-separated emails that get the Admin role (applied at sign-up and on next login)
+ADMIN_EMAILS=
+# Local development only: print OTP codes to the server log when SMTP is not configured
+EMAIL_DEV_LOG_CODES=false
+
+## One-time import of existing tour owners (go run ./cmd/import-nimto-users); remove afterwards
+# MAIN_POSTGRES_DSN=

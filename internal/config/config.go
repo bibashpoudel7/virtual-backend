@@ -8,9 +8,9 @@ import (
 )
 
 type Config struct {
-	Port        string
-	PostgresDSN string
-	RedisAddr   string
+	Port            string
+	PostgresDSN     string
+	RedisAddr       string
 
 	R2Endpoint  string
 	R2Region    string
@@ -26,29 +26,33 @@ type Config struct {
 	CORSOrigins []string
 	FFmpegBin   string
 	JWTSecret   string
+
+	// Claude API key for reading floor plans (dollhouse builder); empty disables it
+	AnthropicAPIKey string
 }
 
 func Load() Config {
 	return Config{
-		// postgresql://postgres:root@localhost:5432/virtual?sslmode=disable
 		Port:        get("PORT", "5555"),
-		PostgresDSN: get("POSTGRES_DSN", "postgres://postgres:root@localhost:5432/virtual?sslmode=disable"),
+		PostgresDSN: get("POSTGRES_DSN", ""),
 		RedisAddr:   get("REDIS_ADDR", "localhost:6379"),
-		JWTSecret:   get("JWT_SECRET", "8db1b8d5158b97eb7b54bf002765323c04a5c1be86d34b44548637f6e7a358e160a078390957e5481b069761e8b8>"),
+		JWTSecret:   get("JWT_SECRET", ""),
 
-		R2Endpoint:  get("R2_ENDPOINT", "https://6d42dedb027b4e7b3b60bf73190ee171.r2.cloudflarestorage.com"),
-		R2Region:    get("R2_REGION", "APAC"),
-		R2Bucket:    get("R2_BUCKET", "test"),
-		R2Key:       get("R2_ACCESS_KEY", "ff9b99e63ecca7293eb5d5b165f2886f"),
-		R2Secret:    get("R2_SECRET_KEY", "610986a838e44426f93c66be7931777f5cc25dbb744439dc40d1d802c7a628b1"),
+		R2Endpoint:  get("R2_ENDPOINT", ""),
+		R2Region:    get("R2_REGION", "auto"),
+		R2Bucket:    get("R2_BUCKET", ""),
+		R2Key:       get("R2_ACCESS_KEY", ""),
+		R2Secret:    get("R2_SECRET_KEY", ""),
 		R2PathStyle: get("R2_USE_PATH_STYLE", "false") == "true",
 
-		CFImagesAccountID: get("CF_IMAGES_ACCOUNT_ID", "6d42dedb027b4e7b3b60bf73190ee171"),
-		CFImagesAPIToken:  get("CF_IMAGES_API_TOKEN", "610986a838e44426f93c66be7931777f5cc25dbb744439dc40d1d802c7a628b1"),
+		CFImagesAccountID: get("CF_IMAGES_ACCOUNT_ID", ""),
+		CFImagesAPIToken:  get("CF_IMAGES_API_TOKEN", ""),
 
 		AuthJWKS:    get("AUTH_JWKS_URL", ""),
 		CORSOrigins: split(get("CORS_ORIGINS", "*")),
 		FFmpegBin:   get("FFMPEG_BIN", "/usr/bin/ffmpeg"),
+
+		AnthropicAPIKey: get("ANTHROPIC_API_KEY", ""),
 	}
 }
 

@@ -7,13 +7,13 @@ help: ## Show this help message
 .PHONY: install-air
 install-air: ## Install Air for hot-reload
 	@echo "Installing Air for hot-reload..."
-	@go install github.com/cosmtrek/air@latest
+	@go install github.com/air-verse/air@latest
 	@echo "Air installed successfully!"
 
 .PHONY: dev
 dev: ## Run backend with hot-reload (requires Air)
 	@echo "Starting backend with hot-reload..."
-	@air
+	@if command -v air >/dev/null 2>&1; then air; else ~/go/bin/air; fi
 
 .PHONY: dev-watch
 dev-watch: ## Run backend with file watching and auto-restart
@@ -23,13 +23,13 @@ dev-watch: ## Run backend with file watching and auto-restart
 .PHONY: build
 build: ## Build the backend binary
 	@echo "Building backend..."
-	@go build -o bin/server ./cmd/server
-	@echo "Build complete! Binary at bin/server"
+	@go build -o bin/api ./cmd/api
+	@echo "Build complete! Binary at bin/api"
 
 .PHONY: run
 run: build ## Build and run the backend
 	@echo "Running backend..."
-	@./bin/server
+	@./bin/api
 
 .PHONY: test
 test: ## Run tests
