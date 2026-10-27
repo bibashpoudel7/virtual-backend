@@ -5,6 +5,13 @@ on:
     branches: [main, dev]
   # Reused by the deploy workflows so nothing deploys without passing checks
   workflow_call:
+    secrets:
+      PROD_ENV_BASE64:
+        required: false
+      DEV_ENV_BASE64:
+        required: false
+      ENV_BASE64:
+        required: false
 
 jobs:
   test:
@@ -14,6 +21,31 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Create .env file from Base64 secret
+        run: |
+          TARGET_BRANCH="${{ github.base_ref || github.ref_name }}"
+          echo "Branch detected: $TARGET_BRANCH"
+
+          if [ "$TARGET_BRANCH" = "main" ]; then
+            echo "Selecting PROD_ENV_BASE64"
+            RAW_ENV="${{ secrets.PROD_ENV_BASE64 }}"
+          else
+            echo "Selecting DEV_ENV_BASE64"
+            RAW_ENV="${{ secrets.DEV_ENV_BASE64 }}"
+          fi
+
+          # Fallback to ENV_BASE64 if branch-specific secret is not defined
+          if [ -z "$RAW_ENV" ]; then
+            RAW_ENV="${{ secrets.ENV_BASE64 }}"
+          fi
+
+          if [ -n "$RAW_ENV" ]; then
+            echo "$RAW_ENV" | base64 -d > .env
+            echo ".env created successfully for $TARGET_BRANCH"
+          else
+            echo "Notice: No ENV secret found for $TARGET_BRANCH"
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@v5
