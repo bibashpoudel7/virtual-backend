@@ -2,9 +2,13 @@
 package tours
 
 import (
+	"context"
+	"errors"
+	"log"
+
 	"backend/internal/config"
 	"backend/internal/models"
-	"errors"
+	"backend/internal/storage"
 
 	"gorm.io/gorm"
 )
@@ -78,11 +82,15 @@ type Service interface {
 }
 
 type service struct {
-	repo Repository
+	repo    Repository
+	storage storage.StorageService
 }
 
-func NewService(virtualDB *gorm.DB, cfg config.Config) (Service, error) {
-	return &service{repo: NewRepository(virtualDB)}, nil
+func NewService(virtualDB *gorm.DB, cfg config.Config, storageSvc storage.StorageService) (Service, error) {
+	return &service{
+		repo:    NewRepository(virtualDB),
+		storage: storageSvc,
+	}, nil
 }
 
 func (s *service) CreateTour(tour *models.Tour) error {
@@ -125,6 +133,21 @@ func (s *service) UpdateTour(tour *models.Tour) error {
 }
 
 func (s *service) DeleteTour(id string) error {
+	// First collect scene IDs belonging to this tour to clean up their assets from R2
+	if s.storage != nil {
+		scenes, err := s.repo.ListScenes(id, 0, 1000)
+		if err == nil {
+			sceneIDs := make([]string, 0, len(scenes))
+			for _, sc := range scenes {
+				sceneIDs = append(sceneIDs, sc.ID)
+			}
+			go func() {
+				if err := s.storage.DeleteTour(context.Background(), id, sceneIDs); err != nil {
+					log.Printf("Warning: failed to delete tour %s assets from R2: %v", id, err)
+				}
+			}()
+		}
+	}
 	return s.repo.DeleteTour(id)
 }
 
@@ -214,6 +237,14 @@ func (s *service) UpdateSceneView(sceneID string, yaw, pitch, fov float64) error
 }
 
 func (s *service) DeleteScene(sceneID string) error {
+	// Clean up all scene tiles, manifests, and photos from R2
+	if s.storage != nil {
+		go func() {
+			if err := s.storage.DeleteScene(context.Background(), sceneID); err != nil {
+				log.Printf("Warning: failed to delete scene %s assets from R2: %v", sceneID, err)
+			}
+		}()
+	}
 	return s.repo.DeleteScene(sceneID)
 }
 
@@ -225,6 +256,9 @@ func (s *service) ListScenes(tourID string, page, limit int) ([]models.Scene, in
 	scenes, err := s.repo.ListScenes(tourID, offset, limit)
 	if err != nil {
 		return nil, 0, err
+	}
+	if offset == 0 && (limit <= 0 || len(scenes) < limit) {
+		return scenes, int64(len(scenes)), nil
 	}
 	count, err := s.repo.CountScenes(tourID)
 	if err != nil {

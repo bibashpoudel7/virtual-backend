@@ -67,13 +67,15 @@ func NewRepository(db *gorm.DB) Repository {
 }
 
 func (r *tourRepository) Create(tour *models.Tour) error {
+	if tour.Slug == "" {
+		tour.Slug = generateUniqueSlug(r.db, tour.Name)
+	}
 	return r.db.Create(tour).Error
 }
 
 func (r *tourRepository) FindByID(id string) (*models.Tour, error) {
 	var tour models.Tour
-	println("bibash", id)
-	if err := r.db.Where("id = ?", id).First(&tour).Error; err != nil {
+	if err := r.db.Where("id = ? OR slug = ?", id, id).First(&tour).Error; err != nil {
 		return nil, err
 	}
 	return &tour, nil
@@ -81,7 +83,7 @@ func (r *tourRepository) FindByID(id string) (*models.Tour, error) {
 
 func (r *tourRepository) FindByStringID(id string) (*models.Tour, error) {
 	var tour models.Tour
-	if err := r.db.Where("id = ?", id).First(&tour).Error; err != nil {
+	if err := r.db.Where("id = ? OR slug = ?", id, id).First(&tour).Error; err != nil {
 		return nil, err
 	}
 	return &tour, nil
@@ -98,15 +100,11 @@ func (r *tourRepository) FindByProperty(propertyID string) ([]models.Tour, error
 		var sceneCount int64
 		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
 
-		// Use custom cover image if set, otherwise fallback to first scene
+		// Thumbnail is strictly from manually set cover image (no 360 scene fallback)
 		if tours[i].CoverImageURL != nil && *tours[i].CoverImageURL != "" {
 			tours[i].ThumbnailURL = tours[i].CoverImageURL
 		} else {
-			// Get the first scene's src_original_url for thumbnail
-			var firstScene models.Scene
-			if err := r.db.Where("tour_id = ?", tours[i].ID).Order("scene_order asc, created_at asc").First(&firstScene).Error; err == nil {
-				tours[i].ThumbnailURL = firstScene.SrcOriginalURL
-			}
+			tours[i].ThumbnailURL = nil
 		}
 
 		tours[i].TourScenes = make([]models.TourScene, sceneCount)
@@ -179,6 +177,9 @@ func (r *tourRepository) GetHotspot(hotspotID string) (*models.Hotspot, error) {
 }
 
 func (r *tourRepository) UpdateTour(tour *models.Tour) error {
+	if tour.Slug == "" && tour.Name != "" {
+		tour.Slug = generateUniqueSlug(r.db, tour.Name, tour.ID)
+	}
 	return r.db.Save(tour).Error
 }
 
@@ -246,15 +247,11 @@ func (r *tourRepository) ListAllTours(page, limit int) ([]models.Tour, int64, er
 		var sceneCount int64
 		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
 
-		// Use custom cover image if set, otherwise fallback to first scene
+		// Thumbnail is strictly from manually set cover image (no 360 scene fallback)
 		if tours[i].CoverImageURL != nil && *tours[i].CoverImageURL != "" {
 			tours[i].ThumbnailURL = tours[i].CoverImageURL
 		} else {
-			// Get the first scene's src_original_url for thumbnail
-			var firstScene models.Scene
-			if err := r.db.Where("tour_id = ?", tours[i].ID).Order("scene_order asc, created_at asc").First(&firstScene).Error; err == nil {
-				tours[i].ThumbnailURL = firstScene.SrcOriginalURL
-			}
+			tours[i].ThumbnailURL = nil
 		}
 
 		tours[i].TourScenes = make([]models.TourScene, sceneCount)
@@ -286,15 +283,11 @@ func (r *tourRepository) ListAllPublicTours(offset, limit int) ([]models.Tour, i
 		var sceneCount int64
 		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
 
-		// Use custom cover image if set, otherwise fallback to first scene
+		// Thumbnail is strictly from manually set cover image (no 360 scene fallback)
 		if tours[i].CoverImageURL != nil && *tours[i].CoverImageURL != "" {
 			tours[i].ThumbnailURL = tours[i].CoverImageURL
 		} else {
-			// Get the first scene's src_original_url for thumbnail
-			var firstScene models.Scene
-			if err := r.db.Where("tour_id = ?", tours[i].ID).Order("scene_order asc, created_at asc").First(&firstScene).Error; err == nil {
-				tours[i].ThumbnailURL = firstScene.SrcOriginalURL
-			}
+			tours[i].ThumbnailURL = nil
 		}
 
 		// Create TourScene entries to represent the scene count
@@ -336,15 +329,11 @@ func (r *tourRepository) ListUserTours(userID string, page, limit int) ([]models
 		var sceneCount int64
 		r.db.Table("scenes").Where("tour_id = ?", tours[i].ID).Count(&sceneCount)
 
-		// Use custom cover image if set, otherwise fallback to first scene
+		// Thumbnail is strictly from manually set cover image (no 360 scene fallback)
 		if tours[i].CoverImageURL != nil && *tours[i].CoverImageURL != "" {
 			tours[i].ThumbnailURL = tours[i].CoverImageURL
 		} else {
-			// Get the first scene's src_original_url for thumbnail
-			var firstScene models.Scene
-			if err := r.db.Where("tour_id = ?", tours[i].ID).Order("scene_order asc, created_at asc").First(&firstScene).Error; err == nil {
-				tours[i].ThumbnailURL = firstScene.SrcOriginalURL
-			}
+			tours[i].ThumbnailURL = nil
 		}
 
 		tours[i].TourScenes = make([]models.TourScene, sceneCount)
@@ -364,15 +353,11 @@ func (r *tourRepository) GetFeaturedTour(userID string) (*models.Tour, error) {
 	var sceneCount int64
 	r.db.Table("scenes").Where("tour_id = ?", tour.ID).Count(&sceneCount)
 
-	// Use custom cover image if set, otherwise fallback to first scene
+	// Thumbnail is strictly from manually set cover image (no 360 scene fallback)
 	if tour.CoverImageURL != nil && *tour.CoverImageURL != "" {
 		tour.ThumbnailURL = tour.CoverImageURL
 	} else {
-		// Get the first scene's src_original_url for thumbnail
-		var firstScene models.Scene
-		if err := r.db.Where("tour_id = ?", tour.ID).Order("scene_order asc, created_at asc").First(&firstScene).Error; err == nil {
-			tour.ThumbnailURL = firstScene.SrcOriginalURL
-		}
+		tour.ThumbnailURL = nil
 	}
 
 	tour.TourScenes = make([]models.TourScene, sceneCount)
@@ -420,8 +405,20 @@ func (r *tourRepository) DeleteScene(sceneID string) error {
 		return err
 	}
 
+	// Delete hotspots in other scenes targeting this scene
+	if err := tx.Delete(&models.Hotspot{}, "target_scene_id = ?", sceneID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
 	// Delete all overlays for this scene
 	if err := tx.Delete(&models.Overlay{}, "scene_id = ?", sceneID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// Delete any play tour scene references to this scene
+	if err := tx.Delete(&models.PlayTourScene{}, "scene_id = ?", sceneID).Error; err != nil {
 		tx.Rollback()
 		return err
 	}

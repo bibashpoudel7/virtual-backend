@@ -10,8 +10,9 @@ import (
 	"backend/internal/db"
 	"backend/internal/email"
 	"backend/internal/embed"
-	"backend/internal/payment"
 	"backend/internal/floorplan"
+	"backend/internal/payment"
+	"backend/internal/storage"
 	"backend/internal/tours"
 	"log"
 	"os"
@@ -43,8 +44,11 @@ func NewRouter(cfg config.Config, dbs *db.Databases) *gin.Engine {
 	// Initialize local payment service
 	paymentSvc := payment.NewLocalPaymentService(dbs.Virtual)
 
+	// Initialize storage service (R2 cleanup for scenes and tours)
+	storageSvc := storage.NewR2Service(cfg)
+
 	// Initialize services
-	tourSvc, err := tours.NewService(dbs.Virtual, cfg)
+	tourSvc, err := tours.NewService(dbs.Virtual, cfg, storageSvc)
 	if err != nil {
 		log.Fatalf("Failed to initialize tour service: %v", err)
 	}
