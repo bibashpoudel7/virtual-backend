@@ -100,6 +100,10 @@ func (h *Handler) CreateTour(c *gin.Context) {
 	tour := models.Tour{
 		ID:                 uuid.GenerateUUIDv7(),
 		Name:               getString(requestData, "name", ""),
+		Slug:               Slugify(getString(requestData, "slug", getString(requestData, "name", ""))),
+		Description:        getStringPtr(requestData, "description"),
+		Location:           getStringPtr(requestData, "location"),
+		CoverImageURL:      getStringPtr(requestData, "cover_image_url"),
 		BackgroundAudioURL: getStringPtr(requestData, "background_audio_url"),
 		DefaultFOV:         getFloat64(requestData, "default_fov", 75),
 		DefaultYawSpeed:    getFloat64(requestData, "default_yaw_speed", 0.01),
@@ -231,8 +235,15 @@ func (h *Handler) UpdateTour(c *gin.Context) {
 		return
 	}
 
-	// Check if the tour belongs to the authenticated user
-	if existingTour.UserID != userID.(string) {
+	// Get user role from context
+	role, roleExists := c.Get("role")
+	roleStr := ""
+	if roleExists {
+		roleStr = role.(string)
+	}
+
+	// Check if the tour belongs to the authenticated user or if user is admin
+	if roleStr != auth.RoleAdmin && existingTour.UserID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
@@ -248,6 +259,31 @@ func (h *Handler) UpdateTour(c *gin.Context) {
 	if name, exists := updateData["name"]; exists {
 		if str, ok := name.(string); ok {
 			existingTour.Name = str
+		}
+	}
+
+	// Update slug if provided
+	if slugVal, exists := updateData["slug"]; exists {
+		if str, ok := slugVal.(string); ok && str != "" {
+			existingTour.Slug = Slugify(str)
+		}
+	}
+
+	// Update description if provided
+	if desc, exists := updateData["description"]; exists {
+		if desc == nil {
+			existingTour.Description = nil
+		} else if str, ok := desc.(string); ok {
+			existingTour.Description = &str
+		}
+	}
+
+	// Update location if provided
+	if loc, exists := updateData["location"]; exists {
+		if loc == nil {
+			existingTour.Location = nil
+		} else if str, ok := loc.(string); ok {
+			existingTour.Location = &str
 		}
 	}
 
@@ -644,7 +680,7 @@ func (h *Handler) ListScenes(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 
-	scenes, total, err := h.service.ListScenes(tourID, page, limit)
+	scenes, total, err := h.service.ListScenes(tour.ID, page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -1130,7 +1166,7 @@ func (h *Handler) GetPublicTourScenes(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 
-	scenes, total, err := h.service.ListScenes(tourID, page, limit)
+	scenes, total, err := h.service.ListScenes(tour.ID, page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -1810,7 +1846,7 @@ func (h *Handler) GetPublicPlayTours(c *gin.Context) {
 		return
 	}
 
-	playTours, err := h.service.ListPlayTours(tourID)
+	playTours, err := h.service.ListPlayTours(tour.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

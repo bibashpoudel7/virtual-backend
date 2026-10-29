@@ -1,0 +1,2 @@
+ALTER TABLE tours DROP COLUMN IF EXISTS description;
+ALTER TABLE tours DROP COLUMN IF EXISTS location;

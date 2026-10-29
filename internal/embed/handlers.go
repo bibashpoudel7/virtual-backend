@@ -189,7 +189,7 @@ func (h *Handler) ResolveToken(c *gin.Context) {
 	}
 
 	var tour models.Tour
-	if err := h.db.Select("id", "is_published").First(&tour, "id = ?", embedToken.TourID).Error; err != nil || !tour.IsPublished {
+	if err := h.db.Select("id", "slug", "is_published").First(&tour, "id = ?", embedToken.TourID).Error; err != nil || !tour.IsPublished {
 		notFound()
 		return
 	}
@@ -205,6 +205,7 @@ func (h *Handler) ResolveToken(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"tour_id":         tour.ID,
+		"slug":            tour.Slug,
 		"allowed_domains": domains,
 	})
 }
